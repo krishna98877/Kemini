@@ -99,6 +99,8 @@ class StreminiIME : InputMethodService() {
     // Voice typing state
     private var speechRecognizer: SpeechRecognizer? = null
     private var isListening = false
+    private var speechErrorCount = 0
+    private val MAX_SPEECH_ERRORS = 3
     private val recognitionResults = StringBuilder()
     private var soundPool: SoundPool? = null
     private var micClickSoundId: Int = 0
@@ -206,6 +208,7 @@ class StreminiIME : InputMethodService() {
         speechRecognizer?.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: android.os.Bundle?) {
                 isListening = true
+                speechErrorCount = 0
                 showListeningIndicator(true)
                 playClickSound()
             }
@@ -223,13 +226,26 @@ class StreminiIME : InputMethodService() {
                 }
             }
             override fun onError(error: Int) {
-                // Restart on error for continuous recognition
-                if (isListening && error != SpeechRecognizer.ERROR_CLIENT) {
+                val isFatalError = error == SpeechRecognizer.ERROR_CLIENT ||
+                    error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ||
+                    error == SpeechRecognizer.ERROR_AUDIO
+
+                if (isFatalError || speechErrorCount >= MAX_SPEECH_ERRORS) {
+                    isListening = false
+                    speechErrorCount = 0
+                    showListeningIndicator(false)
+                    if (error == SpeechRecognizer.ERROR_NETWORK) {
+                        Toast.makeText(this@StreminiIME, "No internet for voice. Try again.", Toast.LENGTH_SHORT).show()
+                    }
+                    handleError(error)
+                    return
+                }
+
+                if (isListening) {
+                    speechErrorCount++
                     handler.postDelayed({
-                        if (isListening) {
-                            restartSpeechRecognition()
-                        }
-                    }, 100)
+                        if (isListening) restartSpeechRecognition()
+                    }, 300)
                 } else {
                     isListening = false
                     showListeningIndicator(false)
@@ -786,9 +802,6 @@ class StreminiIME : InputMethodService() {
             true
         }
 
-        // Initialize speech recognizer
-        initializeSpeechRecognizer()
-
         // Shift Key — Gboard behavior
         shiftKeyView?.setOnTouchListener { v, event ->
             if (event.action == MotionEvent.ACTION_DOWN) {
@@ -1048,9 +1061,9 @@ class StreminiIME : InputMethodService() {
         }
         
         ic.commitText(output, 1)
-        if (aiActionJob?.isActive == true) {
-            serviceScope.coroutineContext.cancelChildren()
-        }
+        // Cancel only the active AI action job, not all coroutines
+        aiActionJob?.cancel(CancellationException("Cancelled by user input"))
+        aiActionJob = null
 
         // Auto-turn off shift after one char (unless caps lock)
         if (!isSymbolsMode && isShiftOn && !isCapsLock) {
@@ -1136,6 +1149,10 @@ class StreminiIME : InputMethodService() {
 
         val originalText = getCurrentText()
         if (originalText.isBlank()) return
+        if (originalText.length > 8000) {
+            Toast.makeText(this, "Text is too long for AI action. Select a portion first.", Toast.LENGTH_LONG).show()
+            return
+        }
 
         aiActionJob?.cancel(CancellationException("Replaced by a newer AI action"))
 
@@ -1213,17 +1230,21 @@ class StreminiIME : InputMethodService() {
 
     private fun replaceFullText(newText: String) {
         val ic = currentInputConnection ?: return
-        // Select slightly more than needed to ensure we catch everything
-        val before = ic.getTextBeforeCursor(5000, 0) ?: ""
-        val after = ic.getTextAfterCursor(5000, 0) ?: ""
-        ic.deleteSurroundingText(before.length, after.length)
-        ic.commitText(newText, 1)
+        ic.beginBatchEdit()
+        try {
+            val before = ic.getTextBeforeCursor(5000, 0) ?: ""
+            val after = ic.getTextAfterCursor(5000, 0) ?: ""
+            ic.deleteSurroundingText(before.length, after.length)
+            ic.commitText(newText, 1)
+        } finally {
+            ic.endBatchEdit()
+        }
     }
 
     private fun getCurrentText(): String {
         val ic = currentInputConnection ?: return ""
-        val before = ic.getTextBeforeCursor(2000, 0) ?: ""
-        val after = ic.getTextAfterCursor(2000, 0) ?: ""
+        val before = ic.getTextBeforeCursor(Int.MAX_VALUE, 0) ?: ""
+        val after = ic.getTextAfterCursor(Int.MAX_VALUE, 0) ?: ""
         return "$before$after"
     }
 
@@ -1728,6 +1749,23 @@ class StreminiIME : InputMethodService() {
         updateEnterKeyLabel(info)
         refreshAutoCap()
         updateKeyboardModeUi()
+    }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        super.onFinishInputView(finishingInput)
+        // Clean up any open panel so keyboard opens fresh next time
+        val panelContainer = keyboardRootView?.findViewById<android.widget.FrameLayout>(R.id.panel_container)
+        if (panelContainer != null) {
+            panelContainer.removeAllViews()
+            panelContainer.visibility = android.view.View.GONE
+        }
+        // Stop voice input if active
+        if (isListening) {
+            stopSpeechRecognition()
+        }
+        // Cancel any in-flight AI job
+        aiActionJob?.cancel()
+        aiActionJob = null
     }
 
     override fun onDestroy() {

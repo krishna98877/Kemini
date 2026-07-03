@@ -764,13 +764,15 @@ class ChatOverlayService : Service(), View.OnTouchListener {
                     chatIsDragging = true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (chatIsDragging && floatingChatParams != null) {
-                        floatingChatParams?.x = chatInitialX - (event.rawX - chatInitialTouchX).toInt()
-                        floatingChatParams?.y = chatInitialY - (event.rawY - chatInitialTouchY).toInt()
-                        windowManager.updateViewLayout(floatingChatView!!, floatingChatParams!!)
+                    val view = floatingChatView ?: return@setOnTouchListener true
+                    val lp = floatingChatParams ?: return@setOnTouchListener true
+                    if (chatIsDragging) {
+                        lp.x = chatInitialX - (event.rawX - chatInitialTouchX).toInt()
+                        lp.y = chatInitialY - (event.rawY - chatInitialTouchY).toInt()
+                        try { windowManager.updateViewLayout(view, lp) } catch (_: Exception) {}
                     }
                 }
-                MotionEvent.ACTION_UP -> { chatIsDragging = false }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { chatIsDragging = false }
             }
             true
         }
@@ -979,6 +981,11 @@ class ChatOverlayService : Service(), View.OnTouchListener {
                     else snapToEdge()
                 }
                 isDragging = false; hasMoved = false; return true
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                isDragging = false; hasMoved = false
+                snapToEdge()
+                return true
             }
         }
         return false
