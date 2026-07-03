@@ -46,9 +46,10 @@ final sendChatMessageUseCaseProvider = Provider<SendChatMessageUseCase>((ref) =>
 final sendDocumentChatMessageUseCaseProvider = Provider<SendDocumentChatMessageUseCase>((ref) => SendDocumentChatMessageUseCase(ref.watch(chatRepositoryProvider)));
 
 /// Composio service manager for the Dart side
-final composioServiceProvider = Provider<ComposioServiceManager>((ref) {
+final composioServiceProvider = FutureProvider<ComposioServiceManager>((ref) async {
   final mgr = ComposioServiceManager();
-  mgr.initialize();
+  await mgr.initialize();
+  ref.onDispose(() => mgr.dispose());
   return mgr;
 });
 
@@ -145,8 +146,9 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
 
     try {
       // ── Composio NLU routing ──────────────────────────────────────────
-      final composio = ref.read(composioServiceProvider);
-      final detectedService = composio.detectService(trimmed);
+      final composioAsync = ref.read(composioServiceProvider);
+      final composio = composioAsync.valueOrNull;
+      final detectedService = composio?.detectService(trimmed);
 
       String reply;
       if (composio.isConnected && detectedService != null) {

@@ -14,7 +14,6 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import android.content.pm.PackageManager
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.launch
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -30,7 +29,8 @@ class MainActivity : FlutterActivity() {
         private const val MIC_REQUEST_CODE = 1001
         private const val COMPOSIO_PREFS = "composio_prefs"
         private const val KEY_COMPOSIO_TOKEN = "composio_token"
-        private const val COMPOSIO_AUTH_URL = "https://composio.dev/login"
+        // Opens Composio dashboard where user can get their API key
+        private const val COMPOSIO_DASHBOARD_URL = "https://composio.dev/settings"
         private const val COMPOSIO_MCP_URL = "https://connect.composio.dev/mcp"
     }
 
@@ -91,7 +91,9 @@ class MainActivity : FlutterActivity() {
                     lifecycleScope.launch { composioClient.disconnectService(serviceId) }
                 },
                 getConnectedServices = {
-                    runBlocking { composioClient.getConnectedServices() }
+                    // Return cached value synchronously to avoid ANR from runBlocking.
+                    // The overlay service refreshes this cache periodically.
+                    _cachedConnectedServices
                 },
             )
         ).register(flutterEngine)
@@ -104,6 +106,15 @@ class MainActivity : FlutterActivity() {
 
     // Lazy ComposioClient for service management from MainActivity
     private val composioClient by lazy { ComposioClient(this) }
+    // Cached connected services map (refreshed periodically to avoid runBlocking ANR)
+    private var _cachedConnectedServices: Map<String, List<String>> = emptyMap()
+
+    /** Refresh the cached connected-services map (call from a coroutine) */
+    fun refreshConnectedServicesCache() {
+        lifecycleScope.launch {
+            _cachedConnectedServices = composioClient.getConnectedServices()
+        }
+    }
 
     private fun registerComposioEventChannel(flutterEngine: FlutterEngine) {
         io.flutter.plugin.common.EventChannel(
@@ -155,17 +166,16 @@ class MainActivity : FlutterActivity() {
 
     // ── Composio actions ────────────────────────────────────────────────────
 
-    /** Open Composio login in Chrome Custom Tab */
+    /** Open Composio dashboard so user can get their API key */
     private fun openComposioConnect() {
         try {
             val tab = CustomTabsIntent.Builder()
                 .setShowTitle(true)
                 .build()
-            tab.launchUrl(this, Uri.parse(COMPOSIO_AUTH_URL))
+            tab.launchUrl(this, Uri.parse(COMPOSIO_DASHBOARD_URL))
         } catch (e: Exception) {
             Log.e(TAG, "Error opening Composio", e)
-            // Fallback: open in browser
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(COMPOSIO_AUTH_URL))
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(COMPOSIO_DASHBOARD_URL))
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
         }
