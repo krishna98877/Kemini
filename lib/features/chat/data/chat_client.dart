@@ -1,6 +1,6 @@
-import '../../core/result/result.dart';
-import '../../core/security/input_sanitizer.dart';
-import '../../services/groq_client.dart';
+import '../../../core/result/result.dart';
+import '../../../core/security/input_sanitizer.dart';
+import '../../../services/groq_client.dart';
 
 class ChatClient {
   ChatClient(this._groqClient);
@@ -18,7 +18,6 @@ class ChatClient {
       final sanitized = InputSanitizer.sanitizeText(message);
 
       // If there's an attachment, mention it in the message
-      // (Groq vision would need a different model; for now, note the attachment)
       String fullMessage = sanitized;
       if (attachment != null) {
         final name = fileName == null
@@ -32,9 +31,9 @@ class ChatClient {
         message: fullMessage,
         history: history,
       );
-      return Success(reply);
+      return Result.success(reply);
     } catch (e) {
-      return Error(NetworkFailure(e.toString()));
+      return Result.failure(NetworkFailure(e.toString()));
     }
   }
 
@@ -52,9 +51,9 @@ class ChatClient {
         question: sanitizedQuestion,
         history: history,
       );
-      return Success(reply);
+      return Result.success(reply);
     } catch (e) {
-      return Error(NetworkFailure(e.toString()));
+      return Result.failure(NetworkFailure(e.toString()));
     }
   }
 }

@@ -1,16 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../core/result/result.dart';
 import '../core/security/input_sanitizer.dart';
-import '../features/chat/data/chat_client.dart';
 import '../features/chat/data/chat_repository_impl.dart';
-import '../features/chat/domain/chat_repository.dart';
 import '../features/chat/domain/send_chat_message_usecase.dart';
 import '../features/chat/domain/send_document_chat_message_usecase.dart';
-import '../features/chat/presentation/chat_state.dart';
 import '../models/message_model.dart';
-import '../services/groq_client.dart';
 import '../services/composio_service.dart';
 import 'app_settings_provider.dart';
 
@@ -280,7 +275,6 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
     final settings = ref.read(appSettingsProvider);
     final List<Message> fresh = settings.saveChatHistory ? (state.value ?? [_greeting()]) : [_greeting()];
     state = AsyncValue.data(fresh);
-    _syncChatState(fresh);
     if (!settings.saveChatHistory) {
       await ref.read(appSettingsProvider.notifier).clearChatHistory();
     }

@@ -43,14 +43,14 @@ class GlowCircleButton extends StatelessWidget {
           boxShadow: isActive
               ? [
                   BoxShadow(
-                    color: const Color(0xFF00F6FF).withValues(alpha: 0.4),
+                    color: const Color(0xFF00F6FF).withOpacity( 0.4),
                     blurRadius: 12,
                     spreadRadius: 2,
                   ),
                 ]
               : [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.5),
+                    color: Colors.black.withOpacity( 0.5),
                     blurRadius: 4,
                     spreadRadius: 0,
                   ),
@@ -91,12 +91,12 @@ class FloatingBubble extends StatelessWidget {
           // Outer glow halo
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF0D3A5C).withValues(alpha: 0.8),
+              color: const Color(0xFF0D3A5C).withOpacity( 0.8),
               blurRadius: 8,
               spreadRadius: 4,
             ),
             BoxShadow(
-              color: const Color(0xFF23A6E2).withValues(alpha: 0.3),
+              color: const Color(0xFF23A6E2).withOpacity( 0.3),
               blurRadius: 16,
               spreadRadius: 0,
             ),

@@ -1,6 +1,4 @@
-
-
-import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class ChatWindowState {
   final String overlayMode; // "icon", "radial", or "maximized"
@@ -14,8 +12,9 @@ class ChatWindowState {
   }
 }
 
-class ChatWindowStateNotifier extends StateNotifier<ChatWindowState> {
-  ChatWindowStateNotifier() : super(ChatWindowState());
+class ChatWindowNotifier extends Notifier<ChatWindowState> {
+  @override
+  ChatWindowState build() => ChatWindowState();
 
   void setMode(String mode) {
     state = state.copyWith(overlayMode: mode);
@@ -32,6 +31,6 @@ class ChatWindowStateNotifier extends StateNotifier<ChatWindowState> {
 }
 
 final chatWindowStateProvider =
-    StateNotifierProvider<ChatWindowStateNotifier, ChatWindowState>(
-  (ref) => ChatWindowStateNotifier(),
+    NotifierProvider<ChatWindowNotifier, ChatWindowState>(
+  ChatWindowNotifier.new,
 );

@@ -219,7 +219,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   ? const Color(0xFF00F0FF)
                   : const Color(0xFF3A4255),
               boxShadow: isActive
-                  ? [BoxShadow(color: const Color(0xFF00F0FF).withValues(alpha: 0.5), blurRadius: 8)]
+                  ? [BoxShadow(color: const Color(0xFF00F0FF).withOpacity( 0.5), blurRadius: 8)]
                   : null,
             ),
           ),
@@ -462,7 +462,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               width: 42,
               height: 42,
               decoration: BoxDecoration(
-                color: iconColor.withValues(alpha: 0.12),
+                color: iconColor.withOpacity( 0.12),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(icon, color: iconColor, size: 20),
@@ -565,9 +565,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               padding:
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
               decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
+                color: color.withOpacity( 0.1),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: color.withValues(alpha: 0.15), width: 0.5),
+                border: Border.all(color: color.withOpacity( 0.15), width: 0.5),
               ),
               child: Text('Enable',
                   style: TextStyle(

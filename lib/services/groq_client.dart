@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 /// Direct Groq API client for Dart/Flutter side.
@@ -16,7 +15,7 @@ class GroqClient {
 
 You also have automation capabilities through Composio. When a user asks you to do something that involves an external service (like sending an email via Gmail, posting a tweet, creating a GitHub issue, sending a Discord message, etc.), you should help them understand that they can trigger that automation by mentioning the service name.
 
-Available services: GitHub, Gmail, Telegram, Twitter/X, Instagram, Facebook, WhatsApp, Chrome, Google Drive, Discord, LinkedIn, Reddit, Google Sheets.
+Available services: GitHub, Gmail, Telegram, Twitter/X, Instagram, Facebook, WhatsApp, Chrome, Google Drive, Discord, LinkedIn, Reddit, Google Sheets, YouTube, TikTok.
 
 When a user's request clearly involves one of these services, acknowledge it and let them know the automation will be triggered. If their request is general conversation, just respond normally as a helpful AI assistant.
 

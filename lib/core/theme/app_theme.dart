@@ -29,11 +29,7 @@ class AppTheme {
         surface:          surface,
         onSurface:        white,
         surfaceContainerHigh: surfaceHi,
-        // FIX: background and surfaceVariant so ALL widgets
-        // (Card, BottomSheet, Dialog, Drawer, etc.) pick up dark colors
         surfaceContainerHighest: surfaceHi,
-        background:       bg,
-        onBackground:     white,
         error:            AppColors.danger,
         onError:          white,
         outline:          border,
@@ -43,7 +39,7 @@ class AppTheme {
 
       // Cards
       cardColor: surface,
-      cardTheme: CardThemeData(
+      cardTheme: CardTheme(
         color: surface,
         elevation: 0,
         shadowColor: Colors.transparent,
@@ -110,7 +106,7 @@ class AppTheme {
       ),
 
       // Dialog
-      dialogTheme: const DialogThemeData(
+      dialogTheme: const DialogTheme(
         backgroundColor: Color(0xE6111111),
         surfaceTintColor: Colors.transparent,
         titleTextStyle: TextStyle(color: white, fontSize: 17, fontWeight: FontWeight.w700),
@@ -120,10 +116,10 @@ class AppTheme {
 
       // Switch
       switchTheme: SwitchThemeData(
-        thumbColor: MaterialStateProperty.resolveWith((s) =>
-            s.contains(MaterialState.selected) ? primary : const Color(0xFF3A4255)),
-        trackColor: MaterialStateProperty.resolveWith((s) =>
-            s.contains(MaterialState.selected)
+        thumbColor: WidgetStateProperty.resolveWith((s) =>
+            s.contains(WidgetState.selected) ? primary : const Color(0xFF3A4255)),
+        trackColor: WidgetStateProperty.resolveWith((s) =>
+            s.contains(WidgetState.selected)
                 ? primary.withOpacity(0.35)
                 : const Color(0xFF1C1C1C)),
       ),
@@ -180,8 +176,8 @@ class AppTheme {
       // Dropdown
       dropdownMenuTheme: const DropdownMenuThemeData(
         menuStyle: MenuStyle(
-          backgroundColor: MaterialStatePropertyAll(surface),
-          surfaceTintColor: MaterialStatePropertyAll(Colors.transparent),
+          backgroundColor: WidgetStatePropertyAll(surface),
+          surfaceTintColor: WidgetStatePropertyAll(Colors.transparent),
         ),
         textStyle: TextStyle(color: white),
       ),
@@ -204,8 +200,8 @@ class AppTheme {
 
       // Checkbox
       checkboxTheme: CheckboxThemeData(
-        fillColor: MaterialStateProperty.resolveWith((s) =>
-            s.contains(MaterialState.selected) ? primary : Colors.transparent),
+        fillColor: WidgetStateProperty.resolveWith((s) =>
+            s.contains(WidgetState.selected) ? primary : Colors.transparent),
         side: const BorderSide(color: border, width: 1.5),
       ),
     );
@@ -239,8 +235,6 @@ class AppTheme {
         onSurface:        textDark,
         surfaceContainerHigh: surfaceHi,
         surfaceContainerHighest: surfaceHi,
-        background:       bg,
-        onBackground:     textDark,
         error:            AppColors.danger,
         onError:          Colors.white,
         outline:          border,
@@ -248,7 +242,7 @@ class AppTheme {
       ),
 
       cardColor: surface,
-      cardTheme: CardThemeData(
+      cardTheme: CardTheme(
         color: surface,
         elevation: 0,
         margin: EdgeInsets.zero,
@@ -305,7 +299,7 @@ class AppTheme {
         ),
       ),
 
-      dialogTheme: const DialogThemeData(
+      dialogTheme: const DialogTheme(
         backgroundColor: surface,
         surfaceTintColor: Colors.transparent,
         titleTextStyle: TextStyle(color: textDark, fontSize: 17, fontWeight: FontWeight.w700),
@@ -314,10 +308,10 @@ class AppTheme {
       ),
 
       switchTheme: SwitchThemeData(
-        thumbColor: MaterialStateProperty.resolveWith((s) =>
-            s.contains(MaterialState.selected) ? primary : const Color(0xFF9CA3AF)),
-        trackColor: MaterialStateProperty.resolveWith((s) =>
-            s.contains(MaterialState.selected)
+        thumbColor: WidgetStateProperty.resolveWith((s) =>
+            s.contains(WidgetState.selected) ? primary : const Color(0xFF9CA3AF)),
+        trackColor: WidgetStateProperty.resolveWith((s) =>
+            s.contains(WidgetState.selected)
                 ? primary.withOpacity(0.3)
                 : const Color(0xFFE8EAF0)),
       ),

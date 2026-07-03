@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/localization/app_strings.dart';
 import '../core/theme/app_colors.dart';
-import '../core/widgets/app_container.dart';
 import '../providers/app_settings_provider.dart';
 import '../services/keyboard_service.dart';
 
@@ -190,7 +189,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF34C47C).withValues(alpha: 0.4)),
+        border: Border.all(color: const Color(0xFF34C47C).withOpacity(0.4)),
       ),
       child: Row(
         children: [
@@ -198,7 +197,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: const Color(0xFF34C47C).withValues(alpha: 0.15),
+              color: const Color(0xFF34C47C).withOpacity(0.15),
               borderRadius: BorderRadius.circular(10),
             ),
             child: const Icon(
@@ -275,7 +274,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.15),
+              color: iconColor.withOpacity(0.15),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: iconColor, size: 20),
@@ -332,7 +331,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: iconColor.withValues(alpha: 0.15),
+                color: iconColor.withOpacity(0.15),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon, color: iconColor, size: 20),
@@ -381,7 +380,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.15),
+              color: iconColor.withOpacity(0.15),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: iconColor, size: 20),
@@ -401,7 +400,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _openKeyboardSetup() async {
-    final service = ref.read(keyboardServiceProvider);
+    final KeyboardService service = KeyboardService();
     final status = await service.checkKeyboardStatus();
     _maybeHaptic(ref.read(appSettingsProvider).hapticFeedback);
     if (!status.isEnabled) {
@@ -422,7 +421,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _switchKeyboard() async {
     _maybeHaptic(ref.read(appSettingsProvider).hapticFeedback);
-    await ref.read(keyboardServiceProvider).showKeyboardPicker();
+    await KeyboardService().showKeyboardPicker();
   }
 
   void _maybeHaptic(bool enabled) {

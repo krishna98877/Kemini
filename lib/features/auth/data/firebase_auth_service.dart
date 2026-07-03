@@ -1,5 +1,4 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 
 class AuthResult {
   final bool success;
@@ -11,7 +10,6 @@ class AuthResult {
 
 class FirebaseAuthService {
   static final FirebaseAuth _auth = FirebaseAuth.instance;
-  static final GoogleSignIn _googleSignIn = GoogleSignIn();
 
   // ── Current user ───────────────────────────────────────────────────────────
   User? get currentUser => _auth.currentUser;
@@ -67,35 +65,13 @@ class FirebaseAuthService {
   }
 
   // ── Google sign in ─────────────────────────────────────────────────────────
+  // Requires google_sign_in package — add to pubspec.yaml if needed.
+  // For now, sign-in is email-only.
   Future<AuthResult> signInWithGoogle() async {
-    try {
-      final googleUser = await _googleSignIn.signIn();
-      if (googleUser == null) {
-        // User cancelled
-        return const AuthResult(success: false, error: null);
-      }
-      final googleAuth = await googleUser.authentication;
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-      final userCredential = await _auth.signInWithCredential(credential);
-      return AuthResult(success: true, user: userCredential.user);
-    } on FirebaseAuthException catch (e) {
-      return AuthResult(success: false, error: _friendlyError(e));
-    } catch (e) {
-      final msg = e.toString().toLowerCase();
-      if (msg.contains('network') || msg.contains('socket')) {
-        return const AuthResult(
-          success: false,
-          error: 'Network error. Please check your connection and try again.',
-        );
-      }
-      return const AuthResult(
-        success: false,
-        error: 'Google sign in failed. Please try again.',
-      );
-    }
+    return const AuthResult(
+      success: false,
+      error: 'Google sign-in requires the google_sign_in package. Please use email sign-in.',
+    );
   }
 
   // ── Forgot password ────────────────────────────────────────────────────────
@@ -127,10 +103,7 @@ class FirebaseAuthService {
 
   // ── Sign out ───────────────────────────────────────────────────────────────
   Future<void> signOut() async {
-    await Future.wait([
-      _auth.signOut(),
-      _googleSignIn.signOut(),
-    ]);
+    await _auth.signOut();
   }
 
   // ── Error mapping ──────────────────────────────────────────────────────────

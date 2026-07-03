@@ -1,6 +1,9 @@
 sealed class Result<T> {
   const Result();
 
+  factory Result.success(T value) = Success<T>;
+  factory Result.failure(Failure failure) = Error<T>;
+
   R when<R>({
     required R Function(T value) success,
     required R Function(Failure failure) failure,
