@@ -157,7 +157,7 @@ class ChatOverlayService : Service(), View.OnTouchListener {
             aiBackendClient.setGroqApiKey(k)
         }
 
-        startForegroundService()
+        startForeground(NOTIFICATION_ID, buildNotification())
 
         bubbleController        = BubbleController(::hideBubble, ::showBubble).apply { setVisible(isBubbleVisible) }
         floatingChatController  = FloatingChatController(::showFloatingChatbot, ::hideFloatingChatbot)
@@ -360,13 +360,17 @@ class ChatOverlayService : Service(), View.OnTouchListener {
 
         val centerX    = expandedWindowSizePx / 2f; val centerY = expandedWindowSizePx / 2f
         val n = menuItems.size
-        val angleStep = 360.0 / (n + 1)
 
         overlayView.postDelayed({
             for ((index, view) in menuItems.withIndex()) {
                 view.visibility = View.VISIBLE; view.alpha = 0f
                 view.translationX = 0f; view.translationY = 0f
-                val angle = Math.toRadians(Math.toDegrees(index * angleStep))
+                // Semicircle above the bubble: -90° (left) to +90° (right)
+                val startDeg = -90.0
+                val endDeg = 90.0
+                val stepDeg = if (n > 1) (endDeg - startDeg) / (n - 1) else 0.0
+                val angleDeg = startDeg + index * stepDeg
+                val angle = Math.toRadians(angleDeg)
                 val targetX = centerX + (radiusPx * cos(angle)).toFloat() - (menuItemSizePx / 2)
                 val targetY = centerY + (radiusPx * -sin(angle)).toFloat() - (menuItemSizePx / 2)
                 val initialCenteredX = centerX - (menuItemSizePx / 2)
@@ -429,10 +433,15 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         }
     }
 
+    private var snapAttempts = 0
     private fun snapToEdge() {
         if (isWindowResizing || preventPositionUpdates || isMenuAnimating) {
-            overlayView.postDelayed({ snapToEdge() }, 150); return
+            snapAttempts++
+            if (snapAttempts < 10) overlayView.postDelayed({ snapToEdge() }, 150)
+            else snapAttempts = 0
+            return
         }
+        snapAttempts = 0
         val bubbleSizePx          = dpToPx(bubbleSizeDp).toFloat()
         val screenWidth           = resources.displayMetrics.widthPixels
         val collapsedWindowSizePx = bubbleSizePx + dpToPx(10f)
@@ -479,8 +488,9 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT,
         )
         lp.gravity = Gravity.CENTER
@@ -634,7 +644,7 @@ class ChatOverlayService : Service(), View.OnTouchListener {
             statusTv.setTextColor(CYAN)
             banner.visibility = View.GONE
         } else {
-            statusTv.text = "13 services"
+            statusTv.text = "15 services"
             statusTv.setTextColor(Color.parseColor("#6B7280"))
             banner.visibility = View.VISIBLE
         }
@@ -783,8 +793,57 @@ class ChatOverlayService : Service(), View.OnTouchListener {
     }
 
     // ── Chat voice input ─────────────────────────────────
-    private fun startChatVoiceInput() { /* same implementation as before */ }
-    private fun stopChatVoiceInput() { /* same implementation as before */ }
+    private fun startChatVoiceInput() {
+        if (isChatListening) return
+        try {
+            chatSpeechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
+            val speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "en-US")
+                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            }
+            chatSpeechRecognizer?.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {
+                    isChatListening = true
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        floatingChatView?.findViewById<TextView>(R.id.btn_cancel_voice)?.visibility = View.VISIBLE
+                        floatingChatView?.findViewById<ImageView>(R.id.btn_voice_input)?.setColorFilter(CYAN)
+                    }
+                }
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() { stopChatVoiceInput() }
+                override fun onError(error: Int) { stopChatVoiceInput() }
+                override fun onResults(results: Bundle?) {
+                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    if (!matches.isNullOrEmpty()) {
+                        val text = matches[0]
+                        addMessageToChatbot(text, isUser = true)
+                        processUserCommand(text)
+                    }
+                    stopChatVoiceInput()
+                }
+                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+            chatSpeechRecognizer?.startListening(speechIntent)
+        } catch (_: Exception) {
+            Toast.makeText(this, "Speech recognition not available", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun stopChatVoiceInput() {
+        if (!isChatListening && chatSpeechRecognizer == null) return
+        isChatListening = false
+        try { chatSpeechRecognizer?.stopListening(); chatSpeechRecognizer?.cancel(); chatSpeechRecognizer?.destroy() } catch (_: Exception) {}
+        chatSpeechRecognizer = null
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            floatingChatView?.findViewById<TextView>(R.id.btn_cancel_voice)?.visibility = View.GONE
+            floatingChatView?.findViewById<ImageView>(R.id.btn_voice_input)?.setColorFilter(WHITE)
+        }
+    }
 
     // ── Message handling
     private fun processUserCommand(userMessage: String) { chatCommandCoordinator.processUserMessage(userMessage) }
@@ -811,6 +870,15 @@ class ChatOverlayService : Service(), View.OnTouchListener {
                 view.findViewById<ScrollView>(R.id.scroll_messages)?.fullScroll(View.FOCUS_DOWN)
             }
         }
+    }
+
+    private fun hideFloatingChatbot() {
+        if (!isChatbotVisible) return
+        stopChatVoiceInput()
+        try { windowManager.removeView(floatingChatView) } catch (_: Exception) {}
+        floatingChatView = null
+        floatingChatParams = null
+        isChatbotVisible = false
     }
 
     // ── Feature handlers
@@ -902,8 +970,43 @@ class ChatOverlayService : Service(), View.OnTouchListener {
     }
 
     // ── Notification
-    private fun buildNotification(): android.app.Notification { /* same as before */ }
-    private fun updateNotification() { /* same as before */ }
+    private fun buildNotification(): android.app.Notification {
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "Stremini AI Assistant",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Floating AI bubble is active"
+            setShowBadge(false)
+        }
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.createNotificationChannel(channel)
+
+        val intent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("Stremini AI")
+            .setContentText("Bubble active — tap to open app")
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+    }
+
+    private fun updateNotification() {
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(NOTIFICATION_ID, buildNotification())
+        } catch (_: Exception) {}
+    }
 
     override fun onDestroy() {
         super.onDestroy()
@@ -911,7 +1014,7 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         idleRunnable?.let { idleHandler.removeCallbacks(it) }
         serviceScope.cancel()
         stopChatVoiceInput()
-        unregisterReceiver(controlReceiver)
+        try { unregisterReceiver(controlReceiver) } catch (_: Exception) {}
         hideFloatingChatbot()
         if (::overlayView.isInitialized && overlayView.windowToken != null) windowManager.removeView(overlayView)
         if (isConnectorsVisible) hideConnectorsPanel()

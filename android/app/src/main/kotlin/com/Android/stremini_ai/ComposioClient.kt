@@ -67,6 +67,8 @@ class ComposioClient(private val context: Context) {
             ServiceDef("linkedin",     "LinkedIn",     listOf("linkedin","linkedin profile","linkedin connection","linkedin job","linkedin post"),      0xFF0A66C2, "L"),
             ServiceDef("reddit",       "Reddit",       listOf("reddit","subreddit","reddit post","upvote","comment","thread"),                        0xFFFF4500, "R"),
             ServiceDef("googlesheets",  "Google Sheets",listOf("sheet","spreadsheet","google sheets","cell","row","column","table"),                  0xFF0F9D58, "S"),
+            ServiceDef("youtube",      "YouTube",      listOf("youtube","youtube video","youtube channel","upload video","youtube comment","subscribe","playlist","youtube shorts"), 0xFFFF0000, "Y"),
+            ServiceDef("tiktok",       "TikTok",       listOf("tiktok","tiktok video","tiktok post","tiktok dm","tiktok comment","tiktok account","duet"),              0xFF000000, "Tk"),
         )
 
         /** Map of common user intents → Composio action IDs */
@@ -87,6 +89,9 @@ class ComposioClient(private val context: Context) {
             "list_drive"      to "GOOGLE_DRIVE_LIST_FILES",
             "read_sheet"      to "GOOGLE_SHEETS_READ_SHEET",
             "update_sheet"    to "GOOGLE_SHEETS_UPDATE_SHEET",
+            "upload_youtube"  to "YOUTUBE_UPLOAD_A_VIDEO",
+            "youtube_comment" to "YOUTUBE_ADD_COMMENT",
+            "tiktok_post"     to "TIKTOK_CREATE_A_VIDEO",
         )
     }
 

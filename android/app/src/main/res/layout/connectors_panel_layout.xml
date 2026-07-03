@@ -39,7 +39,7 @@
             android:id="@+id/tv_composio_status"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="13 services"
+            android:text="15 services"
             android:textColor="#6B7280"
             android:textSize="11sp"
             android:layout_marginEnd="12dp" />
