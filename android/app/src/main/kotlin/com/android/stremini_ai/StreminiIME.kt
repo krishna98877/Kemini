@@ -191,6 +191,7 @@ class StreminiIME : InputMethodService() {
     override fun onCreate() {
         super.onCreate()
         imeBackendClient = IMEBackendClient(this)
+        translationLanguages = imeBackendClient.fetchTranslationLanguages().getOrDefault(emptyList())
         clipboardManager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         sharedPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         encryptedPrefs = EncryptedPrefs.getEncrypted(this, PREFS_NAME)
@@ -209,7 +210,7 @@ class StreminiIME : InputMethodService() {
             override fun onReadyForSpeech(params: android.os.Bundle?) {
                 isListening = true
                 speechErrorCount = 0
-                showListeningIndicator(true)
+                showListeningIndicator(true, Color.parseColor("#00BFFF"))
                 playClickSound()
             }
             override fun onBeginningOfSpeech() {}
@@ -258,14 +259,7 @@ class StreminiIME : InputMethodService() {
                     val recognizedText = matches[0]
                     currentInputConnection?.commitText(recognizedText, 1)
                 }
-                // Restart listening for continuous recognition
-                if (isListening) {
-                    handler.postDelayed({
-                        if (isListening) {
-                            restartSpeechRecognition()
-                        }
-                    }, 100)
-                }
+                // Continuous restart handled by onEndOfSpeech — do not restart here
             }
             override fun onPartialResults(partialResults: android.os.Bundle?) {
                 // Show partial results for real-time feedback
@@ -292,19 +286,21 @@ class StreminiIME : InputMethodService() {
         }
     }
 
-    private fun startSpeechRecognitionInternal() {
-        if (!isListening) return
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+    private fun buildRecognitionIntent(): Intent {
+        return Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguage)
-            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 500L)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
         }
+    }
+
+    private fun startSpeechRecognitionInternal() {
+        if (!isListening) return
         try {
-            speechRecognizer?.startListening(intent)
+            speechRecognizer?.startListening(buildRecognitionIntent())
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -322,14 +318,9 @@ class StreminiIME : InputMethodService() {
         
         isListening = true
         showListeningIndicator(true, Color.parseColor("#00BFFF")) // DeepSkyBlue aura
-        
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguage)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-        }
+
         try {
-            speechRecognizer?.startListening(intent)
+            speechRecognizer?.startListening(buildRecognitionIntent())
         } catch (e: Exception) {
             e.printStackTrace()
             showListeningIndicator(true, Color.RED)
@@ -1176,6 +1167,10 @@ class StreminiIME : InputMethodService() {
                             replaceFullText(resultText)
                         }
                     }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@StreminiIME, "AI action failed. Check your connection.", Toast.LENGTH_SHORT).show()
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -1232,8 +1227,8 @@ class StreminiIME : InputMethodService() {
         val ic = currentInputConnection ?: return
         ic.beginBatchEdit()
         try {
-            val before = ic.getTextBeforeCursor(5000, 0) ?: ""
-            val after = ic.getTextAfterCursor(5000, 0) ?: ""
+            val before = ic.getTextBeforeCursor(Int.MAX_VALUE, 0) ?: ""
+            val after = ic.getTextAfterCursor(Int.MAX_VALUE, 0) ?: ""
             ic.deleteSurroundingText(before.length, after.length)
             ic.commitText(newText, 1)
         } finally {
@@ -1605,13 +1600,7 @@ class StreminiIME : InputMethodService() {
 
     private fun handleUndo() {
         val ic = currentInputConnection ?: return
-        val undone = ic.performContextMenuAction(android.R.id.undo)
-        if (undone) return
-
-        ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_CTRL_LEFT))
-        ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_Z))
-        ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_Z))
-        ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_CTRL_LEFT))
+        ic.performContextMenuAction(android.R.id.undo)
     }
 
 

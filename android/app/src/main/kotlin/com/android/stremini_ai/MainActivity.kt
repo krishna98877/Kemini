@@ -108,6 +108,7 @@ class MainActivity : FlutterActivity() {
                         groqClient = null // Will use keyword-based fallback from MainActivity
                     ).getOrThrow()
                 },
+                automationScope = lifecycleScope,
             )
         ).register(flutterEngine)
         registerOcrChannel(flutterEngine)

@@ -1,6 +1,7 @@
 package com.android.stremini_ai
 
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -33,6 +34,7 @@ class MainActivityChannelRegistry(
         val disconnectComposioService: (String) -> Unit,
         val getConnectedServices: () -> Map<String, List<String>>,
         val executeComposioAutomation: (suspend (String) -> String)? = null,
+        val automationScope: CoroutineScope? = null,
     )
 
     fun register(flutterEngine: FlutterEngine) {
@@ -118,8 +120,9 @@ class MainActivityChannelRegistry(
                     "executeAutomation" -> {
                         val instruction = call.argument<String>("instruction") ?: ""
                         val automationFn = actions.executeComposioAutomation
-                        if (automationFn != null) {
-                            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                        val scope = actions.automationScope
+                        if (automationFn != null && scope != null) {
+                            scope.launch {
                                 try {
                                     val response = automationFn(instruction)
                                     result.success(response)

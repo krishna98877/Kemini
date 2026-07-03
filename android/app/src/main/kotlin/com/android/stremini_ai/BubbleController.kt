@@ -12,11 +12,9 @@ class BubbleController(
 
     fun toggle() {
         if (isVisible) {
-            onHide()
-            isVisible = false
+            try { onHide(); isVisible = false } catch (_: Exception) {}
         } else {
-            onShow()
-            isVisible = true
+            try { onShow(); isVisible = true } catch (_: Exception) {}
         }
     }
 }

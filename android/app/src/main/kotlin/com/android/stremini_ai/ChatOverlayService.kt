@@ -174,6 +174,17 @@ class ChatOverlayService : Service(), View.OnTouchListener {
 
         startForeground(NOTIFICATION_ID, buildNotification())
 
+        // Create notification channel once
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.createNotificationChannel(NotificationChannel(
+            CHANNEL_ID,
+            "Stremini AI Assistant",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Floating AI bubble is active"
+            setShowBadge(false)
+        })
+
         bubbleController        = BubbleController(::hideBubble, ::showBubble).apply { setVisible(isBubbleVisible) }
         floatingChatController  = FloatingChatController(::showFloatingChatbot, ::hideFloatingChatbot)
         idleAnimationController = IdleAnimationController(
@@ -993,17 +1004,6 @@ class ChatOverlayService : Service(), View.OnTouchListener {
 
     // ── Notification
     private fun buildNotification(): android.app.Notification {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "Stremini AI Assistant",
-            NotificationManager.IMPORTANCE_LOW
-        ).apply {
-            description = "Floating AI bubble is active"
-            setShowBadge(false)
-        }
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.createNotificationChannel(channel)
-
         val intent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }

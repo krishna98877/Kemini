@@ -18,6 +18,8 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 
 /**
  * WebView activity for Composio managed OAuth authentication.
@@ -257,15 +259,11 @@ class ComposioAuthActivity : AppCompatActivity() {
             (url.contains("success", ignoreCase = true) || url.contains("callback", ignoreCase = true))) {
             // Wait a moment then check if connection succeeded
             webView.postDelayed({
-                runCatching {
+                lifecycleScope.launch {
                     val client = ComposioClient(this@ComposioAuthActivity)
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-                        val connected = client.isServiceConnected(serviceId)
-                        if (connected) {
-                            showSuccess()
-                        }
-                        // If not connected yet, the redirect might still be processing
-                        // The user can close manually
+                    val connected = client.isServiceConnected(serviceId)
+                    if (connected) {
+                        showSuccess()
                     }
                 }
             }, 2000)
