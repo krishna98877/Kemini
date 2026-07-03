@@ -28,6 +28,10 @@ class MainActivityChannelRegistry(
         val saveComposioToken: (String) -> Unit,
         val isComposioConnected: () -> Boolean,
         val getComposioMcpUrl: () -> String,
+        // Composio service management
+        val connectComposioService: (String) -> Unit,
+        val disconnectComposioService: (String) -> Unit,
+        val getConnectedServices: () -> Map<String, List<String>>,
     )
 
     fun register(flutterEngine: FlutterEngine) {
@@ -94,6 +98,22 @@ class MainActivityChannelRegistry(
                     }
                     "isComposioConnected" -> result.success(actions.isComposioConnected())
                     "getComposioMcpUrl" -> result.success(actions.getComposioMcpUrl())
+                    "connectComposioService" -> {
+                        val serviceId = call.argument<String>("serviceId") ?: ""
+                        actions.connectComposioService(serviceId)
+                        result.success(true)
+                    }
+                    "disconnectComposioService" -> {
+                        val serviceId = call.argument<String>("serviceId") ?: ""
+                        actions.disconnectComposioService(serviceId)
+                        result.success(true)
+                    }
+                    "getConnectedServices" -> {
+                        val services = actions.getConnectedServices()
+                        // Convert Map<String, List<String>> to Map<String, Boolean> for Dart
+                        val flat = services.mapValues { it.value.isNotEmpty() }
+                        result.success(flat)
+                    }
                     else -> result.notImplemented()
                 }
             }

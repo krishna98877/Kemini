@@ -158,8 +158,10 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         chatCommandCoordinator  = ChatCommandCoordinator(
             scope         = serviceScope,
             backendClient = aiBackendClient,
+            composioClient = ComposioClient(this),
             onBotMessage  = { message -> addMessageToChatbot(message, isUser = false) }
         )
+        composioClient = chatCommandCoordinator.composioClient
 
         setupOverlay()
 
@@ -450,6 +452,10 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         collapseMenu()
     }
 
+    // ── Composio client for automation ─────────────────────────────────
+    private lateinit var composioClient: ComposioClient
+    private val serviceConnectionState = mutableMapOf<String, Boolean>()
+
     private fun handleAutomation() {
         collapseMenu()
         if (isConnectorsVisible) { hideConnectorsPanel(); return }
@@ -468,27 +474,125 @@ class ChatOverlayService : Service(), View.OnTouchListener {
             PixelFormat.TRANSLUCENT,
         )
         lp.gravity = Gravity.CENTER
-        lp.width = WindowManager.LayoutParams.WRAP_CONTENT
-        lp.height = WindowManager.LayoutParams.WRAP_CONTENT
 
         connectorsView = LayoutInflater.from(this).inflate(R.layout.connectors_panel_layout, null)
-        updateConnectorsList()
 
         // Wire close button
         connectorsView?.findViewById<ImageView>(R.id.btn_close_connectors)?.setOnClickListener {
             hideConnectorsPanel()
         }
-        // Wire "Connect Composio" row — open main app settings
-        connectorsView?.findViewById<LinearLayout>(R.id.connect_composio_row)?.setOnClickListener {
+
+        // Wire Composio connect banner (open main app for initial login)
+        connectorsView?.findViewById<LinearLayout>(R.id.composio_connect_banner)?.setOnClickListener {
             hideConnectorsPanel()
             openMainApp()
         }
 
+        // Build the 13 service rows
+        buildServicesList()
+
+        // Update Composio status label
+        updateComposioStatusText()
+
+        // Check which services are connected (async)
+        serviceScope.launch {
+            refreshServiceConnectionStates()
+        }
+
         try { wm.addView(connectorsView, lp) } catch (_: Exception) {}
 
-        isConnectorsVisible = true
         isConnectorsActive = false
         updateConnectorsToggleIcon()
+    }
+
+    /** Build 13 service rows in the scrollable list */
+    private fun buildServicesList() {
+        val servicesList = connectorsView?.findViewById<LinearLayout>(R.id.services_list) ?: return
+        servicesList.removeAllViews()
+
+        for (svc in ComposioClient.ALL_SERVICES) {
+            val row = LayoutInflater.from(this).inflate(R.layout.service_row_item, servicesList, false)
+
+            // Icon — colored circle with first letter
+            val iconLetter = row.findViewById<TextView>(R.id.service_icon_letter)
+            iconLetter.text = svc.name.first().toString()
+            iconLetter.setBackgroundColor(svc.color.toInt())
+
+            // Name
+            row.findViewById<TextView>(R.id.service_name).text = svc.name
+
+            // Status dot (hidden until we check)
+            val statusDot = row.findViewById<View>(R.id.service_status_dot)
+            statusDot.visibility = View.GONE
+
+            // Action button
+            val actionBtn = row.findViewById<TextView>(R.id.service_action_btn)
+            actionBtn.text = "Connect"
+            actionBtn.setOnClickListener {
+                if (actionBtn.text == "Connected") {
+                    // Disconnect
+                    actionBtn.text = "Connect"
+                    actionBtn.setTextColor(CYAN)
+                    statusDot.visibility = View.GONE
+                    serviceScope.launch { composioClient.disconnectService(svc.id) }
+                    Toast.makeText(this, "${svc.name} disconnected", Toast.LENGTH_SHORT).show()
+                } else {
+                    // Connect — open Composio managed auth
+                    composioClient.connectService(svc.id)
+                }
+            }
+
+            // Store reference for async updates
+            row.tag = svc.id
+            servicesList.addView(row)
+        }
+    }
+
+    /** Update the "Connected" / "Not connected" status text */
+    private fun updateComposioStatusText() {
+        val statusTv = connectorsView?.findViewById<TextView>(R.id.tv_composio_status) ?: return
+        val banner = connectorsView?.findViewById<LinearLayout>(R.id.composio_connect_banner) ?: return
+        if (composioClient.isConfigured()) {
+            statusTv.text = "Connected"
+            statusTv.setTextColor(CYAN)
+            banner.visibility = View.GONE
+        } else {
+            statusTv.text = "Not connected"
+            statusTv.setTextColor(Color.parseColor("#6B7280"))
+            banner.visibility = View.VISIBLE
+        }
+    }
+
+    /** Async: check which services are connected and update UI */
+    private suspend fun refreshServiceConnectionStates() {
+        if (!composioClient.isConfigured()) return
+        try {
+            val connected = composioClient.getConnectedServices()
+            val servicesList = connectorsView?.findViewById<LinearLayout>(R.id.services_list) ?: return
+
+            for (i in 0 until servicesList.childCount) {
+                val row = servicesList.getChildAt(i)
+                val svcId = row.tag as? String ?: continue
+                val isConnected = connected.containsKey(svcId)
+                serviceConnectionState[svcId] = isConnected
+
+                // Update UI on main thread
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    val actionBtn = row.findViewById<TextView>(R.id.service_action_btn)
+                    val statusDot = row.findViewById<View>(R.id.service_status_dot)
+                    if (isConnected) {
+                        actionBtn.text = "Connected"
+                        actionBtn.setTextColor(Color.parseColor("#25D366"))
+                        statusDot.visibility = View.VISIBLE
+                        statusDot.background = getDrawable(R.drawable.connector_active_indicator)
+                    } else {
+                        actionBtn.text = "Connect"
+                        actionBtn.setTextColor(CYAN)
+                        statusDot.visibility = View.GONE
+                    }
+                }
+            }
+        } catch (_: Exception) {}
     }
 
     private fun hideConnectorsPanel() {
@@ -500,83 +604,12 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         connectorsView = null
     }
 
-    private fun updateConnectorsList() {
-        val list = connectorsView?.findViewById<LinearLayout>(R.id.connected_apps_list) ?: return
-        list.removeAllViews()
-        val prefs = EncryptedPrefs.getEncrypted(this, "composio_prefs")
-        val token = prefs.getString("composio_token")
-        if (!token.isNullOrEmpty()) {
-            addConnectorItem(list, "Composio", true, "composio")
-        }
-        // Show placeholder only when no apps
-        list.findViewById<View>(R.id.no_connectors_placeholder)?.visibility =
-            if (list.childCount == 0) View.VISIBLE else View.GONE
-    }
-
-    private fun addConnectorItem(list: LinearLayout, name: String, connected: Boolean, iconName: String) {
-        val row = LinearLayout(this)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.setPadding(0, 0, 0, dpToPx(14))
-        row.gravity = android.view.Gravity.CENTER_VERTICAL
-
-        // Icon
-        val iconView = ImageView(this)
-        val sizePx = dpToPx(26f).toInt()
-        val iconLp = LinearLayout.LayoutParams(sizePx, sizePx)
-        iconView.layoutParams = iconLp
-        iconView.scaleType = ImageView.ScaleType.FIT_CENTER
-        val resId = resources.getIdentifier(iconName, "drawable", packageName)
-        if (resId != 0) iconView.setImageResource(resId)
-
-        // Active indicator dot
-        val dot = View(this)
-        val dotLp = LinearLayout.LayoutParams(dpToPx(8f), dpToPx(8f))
-        dot.layoutParams = dotLp
-        dot.background = getDrawable(R.drawable.connector_active_indicator)
-        dot.visibility = if (connected) View.VISIBLE else View.GONE
-
-        // Text
-        val textView = TextView(this)
-        textView.text = name
-        textView.textSize = 14f
-        textView.setTextColor(if (connected) WHITE else BORDER)
-        textView.alpha = if (connected) 1f else 0.4f
-        val textLp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        textView.layoutParams = textLp
-        textView.ellipsize = android.util.Ellipsize.END
-        textView.setPadding(0, dpToPx(2f), 0)
-
-        row.addView(iconView)
-        dotLp.gravity = android.view.Gravity.CENTER_VERTICAL
-        row.addView(dot, dotLp)
-
-        // Connect/disconnect button
-        val connectBtn = FrameLayout(this)
-        val btnSize = dpToPx(34f)
-        connectBtn.layoutParams = LinearLayout.LayoutParams(btnSize, btnSize)
-        if (connected) connectBtn.foreground = getDrawable(R.drawable.connector_active_indicator)
-        connectBtn.isClickable = true
-        connectBtn.setOnClickListener { disconnectApp(name) }
-
-        row.addView(connectBtn)
-        list.addView(row)
-    }
-
-    private fun disconnectApp(name: String) {
-        if (name == "Composio") {
-            EncryptedPrefs.getEncrypted(this, "composio_prefs").remove("composio_token")
-        }
-        isConnectorsActive = false
-        updateConnectorsList()
-        updateConnectorsToggleIcon()
-        Toast.makeText(this, "$name disconnected", Toast.LENGTH_SHORT).show()
-    }
-
     private fun updateConnectorsToggleIcon() {
         val btn = connectorsView?.findViewById<FrameLayout>(R.id.btn_connectors_toggle) ?: return
         val icon = btn?.findViewById<ImageView>(R.id.connectors_toggle_icon)
         val dot  = btn?.findViewById<View>(R.id.connectors_active_dot)
-        if (isConnectorsActive) {
+        val anyConnected = serviceConnectionState.values.any { it }
+        if (anyConnected) {
             icon?.setColorFilter(CYAN)
             dot?.visibility = View.VISIBLE
         } else {
@@ -711,6 +744,14 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         }
     }
     private fun handleSettings() { openMainApp(); Toast.makeText(this, "Opening Stremini…", Toast.LENGTH_SHORT).show() }
+
+    private fun openMainApp() {
+        try {
+            val intent = packageManager.getLaunchIntentForPackage(packageName)
+            intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } catch (_: Exception) {}
+    }
 
     private fun toggleFeature(featureId: Int) {
         if (activeFeatures.contains(featureId)) activeFeatures.remove(featureId) else activeFeatures.add(featureId)

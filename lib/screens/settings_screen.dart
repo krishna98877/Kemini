@@ -187,7 +187,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Widget _buildComposioCard(dynamic settings, BuildContext context) {
-    final composioService = ComposioService();
+    final composioService = ComposioServiceManager();
     // Initialize the service state from prefs
     return StatefulBuilder(
       builder: (context, setState) {

@@ -12,7 +12,10 @@ import android.view.inputmethod.InputMethodManager
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import android.content.pm.PackageManager
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -82,6 +85,14 @@ class MainActivity : FlutterActivity() {
                 isComposioConnected = ::isComposioConnected,
                 getComposioMcpUrl = { COMPOSIO_MCP_URL },
                 setEventSink = { sink -> _composioEventSink = sink },
+                // Composio service management
+                connectComposioService = { serviceId -> composioClient.connectService(serviceId) },
+                disconnectComposioService = { serviceId ->
+                    lifecycleScope.launch { composioClient.disconnectService(serviceId) }
+                },
+                getConnectedServices = {
+                    runBlocking { composioClient.getConnectedServices() }
+                },
             )
         ).register(flutterEngine)
         registerOcrChannel(flutterEngine)
@@ -90,6 +101,9 @@ class MainActivity : FlutterActivity() {
 
     // ── Composio event channel (deep-link → Flutter) ────────────────────────
     private var _composioEventSink: io.flutter.plugin.common.EventChannel.EventSink? = null
+
+    // Lazy ComposioClient for service management from MainActivity
+    private val composioClient by lazy { ComposioClient(this) }
 
     private fun registerComposioEventChannel(flutterEngine: FlutterEngine) {
         io.flutter.plugin.common.EventChannel(
