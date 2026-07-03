@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/constants/app_assets.dart';
-import '../services/api_service.dart';
+import '../providers/chat_provider.dart';
 
 // State provider for floating chatbot
 final floatingChatbotProvider =
@@ -119,7 +119,7 @@ class _FloatingChatbotState extends ConsumerState<FloatingChatbot> {
     if (text.isEmpty) return;
 
     final notifier = ref.read(floatingChatbotProvider.notifier);
-    final apiService = ref.read(apiServiceProvider);
+    final groqClient = ref.read(groqClientProvider);
 
     // Add user message
     notifier.addMessage(text, true);
@@ -136,13 +136,13 @@ class _FloatingChatbotState extends ConsumerState<FloatingChatbot> {
       }
     });
 
-    // Get AI response
+    // Get AI response via Groq
     notifier.setLoading(true);
     try {
-      final response = await apiService.sendMessage(text);
+      final response = await groqClient.sendMessage(message: text);
       notifier.addMessage(response, false);
     } catch (e) {
-      notifier.addMessage("Error: $e", false);
+      notifier.addMessage('Sorry, something went wrong.', false);
     } finally {
       notifier.setLoading(false);
     }

@@ -9,6 +9,11 @@ import java.util.concurrent.TimeUnit
 private val TRUSTED_BACKEND_HOSTS = setOf(
     "ai-keyboard-backend.vishwajeetadkine705.workers.dev",
     "agentic-github-debugger.vishwajeetadkine705.workers.dev",
+    // Groq API — LLM brain
+    "api.groq.com",
+    // Composio — managed auth automation
+    "backend.composio.dev",
+    "connect.composio.dev",
 )
 
 /** Maximum response body size: 512 KB. Prevents OOM from malicious/buggy server. */

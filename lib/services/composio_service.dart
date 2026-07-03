@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import '../core/config/env_config.dart';
 
 /// Supported automation services with their display info and NLP keywords.
 class ComposioService {
@@ -24,42 +23,41 @@ class ComposioService {
 
 /// All 13 supported automation services.
 const List<ComposioService> kComposioServices = [
-  ComposioService(id: 'github', name: 'GitHub', keywords: ['github', 'repo', 'commit', 'pull request', 'issue'], colorValue: 0xFF6e40c9),
-  ComposioService(id: 'gmail', name: 'Gmail', keywords: ['gmail', 'email', 'mail', 'send email'], colorValue: 0xFFEA4335),
-  ComposioService(id: 'telegram', name: 'Telegram', keywords: ['telegram', 'tg', 'message'], colorValue: 0xFF0088cc),
-  ComposioService(id: 'twitter', name: 'Twitter', keywords: ['twitter', 'tweet', 'x.com'], colorValue: 0xFF1DA1F2),
-  ComposioService(id: 'instagram', name: 'Instagram', keywords: ['instagram', 'ig', 'story', 'reel'], colorValue: 0xFFE4405F),
-  ComposioService(id: 'facebook', name: 'Facebook', keywords: ['facebook', 'fb', 'post', 'page'], colorValue: 0xFF1877F2),
-  ComposioService(id: 'whatsapp', name: 'WhatsApp', keywords: ['whatsapp', 'wa'], colorValue: 0xFF25D366),
-  ComposioService(id: 'googlechrome', name: 'Chrome', keywords: ['chrome', 'browser', 'open url'], colorValue: 0xFF4285F4),
-  ComposioService(id: 'googledrive', name: 'Google Drive', keywords: ['drive', 'upload', 'file', 'folder'], colorValue: 0xFF0F9D58),
-  ComposioService(id: 'discord', name: 'Discord', keywords: ['discord', 'server', 'channel'], colorValue: 0xFF5865F2),
+  ComposioService(id: 'github', name: 'GitHub', keywords: ['github', 'repo', 'commit', 'pull request', 'issue', 'branch', 'code'], colorValue: 0xFF6e40c9),
+  ComposioService(id: 'gmail', name: 'Gmail', keywords: ['gmail', 'email', 'mail', 'send email', 'inbox', 'draft'], colorValue: 0xFFEA4335),
+  ComposioService(id: 'telegram', name: 'Telegram', keywords: ['telegram', 'tg', 'message', 'send message'], colorValue: 0xFF0088cc),
+  ComposioService(id: 'twitter', name: 'Twitter', keywords: ['twitter', 'tweet', 'x.com', 'post tweet'], colorValue: 0xFF1DA1F2),
+  ComposioService(id: 'instagram', name: 'Instagram', keywords: ['instagram', 'ig', 'story', 'reel', 'post', 'dm'], colorValue: 0xFFE4405F),
+  ComposioService(id: 'facebook', name: 'Facebook', keywords: ['facebook', 'fb', 'post', 'page', 'group'], colorValue: 0xFF1877F2),
+  ComposioService(id: 'whatsapp', name: 'WhatsApp', keywords: ['whatsapp', 'wa', 'whats app'], colorValue: 0xFF25D366),
+  ComposioService(id: 'googlechrome', name: 'Chrome', keywords: ['chrome', 'browser', 'open url', 'browse', 'search'], colorValue: 0xFF4285F4),
+  ComposioService(id: 'googledrive', name: 'Google Drive', keywords: ['drive', 'google drive', 'upload', 'file', 'folder', 'share file'], colorValue: 0xFF0F9D58),
+  ComposioService(id: 'discord', name: 'Discord', keywords: ['discord', 'server', 'channel', 'dm discord'], colorValue: 0xFF5865F2),
   ComposioService(id: 'linkedin', name: 'LinkedIn', keywords: ['linkedin', 'profile', 'connection', 'job'], colorValue: 0xFF0A66C2),
-  ComposioService(id: 'reddit', name: 'Reddit', keywords: ['reddit', 'subreddit', 'post', 'upvote'], colorValue: 0xFFFF4500),
-  ComposioService(id: 'googleheets', name: 'Google Sheets', keywords: ['sheet', 'spreadsheet', 'cell'], colorValue: 0xFF0F9D58),
+  ComposioService(id: 'reddit', name: 'Reddit', keywords: ['reddit', 'subreddit', 'post', 'upvote', 'thread'], colorValue: 0xFFFF4500),
+  ComposioService(id: 'googleheets', name: 'Google Sheets', keywords: ['sheet', 'spreadsheet', 'google sheets', 'cell', 'row', 'column'], colorValue: 0xFF0F9D58),
 ];
 
-/// Service that manages Composio MCP integration:
-/// - Opens Composio login via native Chrome Custom Tab
-/// - Listens for deep-link auth code callback
-/// - Exchanges auth code for Bearer token via backend
-/// - Manages 13 service connections (connect/disconnect/status)
-/// - Sends automation instructions via natural language
+/// Service that manages Composio integration directly via REST API.
+///
+/// Calls Composio's backend.composio.dev endpoints directly from Dart
+/// (no more routing through the broken Cloudflare Worker backend).
+/// Uses the Composio API key stored in encrypted prefs on the native side.
 class ComposioServiceManager {
   static const MethodChannel _channel = MethodChannel('stremini.composio');
   static const EventChannel _eventChannel = EventChannel('stremini.composio/events');
 
-  static const String _tokenKey = 'composio_token';
   static const String _connectedKey = 'composio_connected';
+  static const String _composioApiBase = 'https://backend.composio.dev/api/v1';
 
   StreamSubscription? _eventSub;
-  String? _cachedToken;
+  String? _cachedApiKey;
   bool _isConnected = false;
 
   /// Connection status per service: serviceId → bool
   final Map<String, bool> _serviceStatus = {};
 
-  String? get token => _cachedToken;
+  String? get token => _cachedApiKey;
   bool get isConnected => _isConnected;
   Map<String, bool> get serviceStatus => Map.unmodifiable(_serviceStatus);
 
@@ -70,11 +68,9 @@ class ComposioServiceManager {
 
     if (Platform.isAndroid) {
       try {
-        _cachedToken = await _channel.invokeMethod<String?>('getComposioToken');
-        if (_cachedToken != null) _isConnected = true;
+        _cachedApiKey = await _channel.invokeMethod<String?>('getComposioToken');
+        if (_cachedApiKey != null && _cachedApiKey!.isNotEmpty) _isConnected = true;
       } catch (_) {}
-    } else {
-      _cachedToken = prefs.getString(_tokenKey);
     }
 
     _eventSub = _eventChannel.receiveBroadcastStream().listen((event) {
@@ -126,18 +122,28 @@ class ComposioServiceManager {
     }
   }
 
-  /// Refresh all service connection statuses from Composio API.
+  /// Refresh all service connection statuses from Composio API directly.
   Future<void> refreshServiceStatuses() async {
-    if (!isConnected) return;
+    if (_cachedApiKey == null || _cachedApiKey!.isEmpty) return;
     try {
-      final result = await _channel.invokeMethod<Map>('getConnectedServices');
-      if (result != null) {
+      final response = await http.get(
+        Uri.parse('$_composioApiBase/connectedAccounts'),
+        headers: {'x-api-key': _cachedApiKey!},
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
         _serviceStatus.clear();
-        result.forEach((key, value) {
-          _serviceStatus[key.toString()] = value == true;
-        });
+        final accounts = data['connectedAccounts'] ?? data['data'] ?? [];
+        for (final acct in accounts) {
+          final provider = acct['providerName'] ?? acct['provider'] ?? '';
+          if (provider.toString().isNotEmpty) {
+            _serviceStatus[provider.toString()] = true;
+          }
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Composio: error refreshing statuses — $e');
+    }
   }
 
   /// Detect which service a user message is likely about.
@@ -151,21 +157,23 @@ class ComposioServiceManager {
     return null;
   }
 
-  /// Exchange the auth code (received via deep-link) for a Bearer token.
+  /// Exchange the auth code (received via deep-link) for an API key.
+  /// Now calls Composio directly instead of the broken backend.
   Future<void> _exchangeCodeForToken(String authCode) async {
     try {
+      // Composio uses the auth code flow — exchange via their endpoint
       final response = await http.post(
-        Uri.parse('${EnvConfig.baseUrl}/composio/exchange'),
+        Uri.parse('$_composioApiBase/auth/exchangeCode'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'authCode': authCode}),
+        body: jsonEncode({'code': authCode}),
       );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final token = data['token'] as String?;
-        if (token != null && token.isNotEmpty) {
-          await _saveToken(token);
-          debugPrint('Composio: token exchanged and saved');
+        final apiKey = data['apiKey'] ?? data['token'] ?? data['key'];
+        if (apiKey != null && apiKey.toString().isNotEmpty) {
+          await _saveToken(apiKey.toString());
+          debugPrint('Composio: API key exchanged and saved');
         }
       } else {
         debugPrint('Composio: exchange failed — ${response.statusCode}');
@@ -177,7 +185,7 @@ class ComposioServiceManager {
 
   /// Save token on native side (encrypted) and cache connection state.
   Future<void> _saveToken(String token) async {
-    _cachedToken = token;
+    _cachedApiKey = token;
     _isConnected = true;
 
     final prefs = await SharedPreferences.getInstance();
@@ -192,12 +200,11 @@ class ComposioServiceManager {
 
   /// Disconnect Composio — clear all stored tokens.
   Future<void> disconnect() async {
-    _cachedToken = null;
+    _cachedApiKey = null;
     _isConnected = false;
     _serviceStatus.clear();
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_tokenKey);
     await prefs.setBool(_connectedKey, false);
 
     if (Platform.isAndroid) {
@@ -207,32 +214,37 @@ class ComposioServiceManager {
     }
   }
 
-  /// Send an automation instruction via Composio.
-  /// Returns the AI response string, or an error message.
+  /// Send an automation instruction via Composio API directly.
+  /// No more routing through the broken Cloudflare Worker backend.
   Future<String> sendAutomationInstruction(String instruction) async {
-    if (_cachedToken == null) {
+    if (_cachedApiKey == null || _cachedApiKey!.isEmpty) {
       return 'Composio is not connected. Go to Settings → Connect Automations first.';
     }
     try {
       final response = await http.post(
-        Uri.parse('${EnvConfig.baseUrl}/composio/automate'),
+        Uri.parse('$_composioApiBase/actions/execute'),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_cachedToken',
+          'x-api-key': _cachedApiKey!,
         },
         body: jsonEncode({
-          'instruction': instruction,
-          'mcpUrl': 'https://connect.composio.dev/mcp',
+          'message': instruction.length > 4000 ? instruction.substring(0, 4000) : instruction,
         }),
       );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        return (data['response'] ?? data['message'] ?? data['result'] ?? 'Done.').toString();
+        return (data['result'] ?? data['response'] ?? data['message'] ?? data['output'] ?? 'Done.').toString();
       }
       if (response.statusCode == 401) {
         await disconnect();
         return 'Composio session expired. Please reconnect in Settings.';
+      }
+      if (response.statusCode == 403) {
+        return 'Permission denied. Reconnect the service and try again.';
+      }
+      if (response.statusCode == 422) {
+        return 'Invalid request. Please be more specific about what you want to do.';
       }
       return 'Automation failed. Please try again.';
     } catch (e) {

@@ -67,7 +67,7 @@ class StreminiIME : InputMethodService() {
     private lateinit var sharedPrefs: SharedPreferences
     private lateinit var encryptedPrefs: EncryptedPrefs.EncryptedSharedPreferencesWrapper
 
-    private val imeBackendClient = IMEBackendClient()
+    private lateinit var imeBackendClient: IMEBackendClient
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -188,6 +188,7 @@ class StreminiIME : InputMethodService() {
 
     override fun onCreate() {
         super.onCreate()
+        imeBackendClient = IMEBackendClient(this)
         clipboardManager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         sharedPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         encryptedPrefs = EncryptedPrefs.getEncrypted(this, PREFS_NAME)
