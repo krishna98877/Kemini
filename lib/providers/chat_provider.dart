@@ -1,8 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
-
 import '../core/result/result.dart';
 import '../core/security/input_sanitizer.dart';
 import '../features/chat/data/chat_client.dart';
@@ -55,7 +53,7 @@ final composioServiceProvider = FutureProvider<ComposioServiceManager>((ref) asy
 
 /// Holds a snapshot of the current chat state for widgets that need
 /// both the message list and loading/error status in a single object.
-final chatStateProvider = StateProvider<ChatState>((ref) => const ChatState(messages: []));
+// chatStateProvider removed — was written but never read by any widget
 
 
 class ChatNotifier extends AsyncNotifier<List<Message>> {
@@ -71,16 +69,10 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
     } else {
       messages = [_greeting()];
     }
-    ref.read(chatStateProvider.notifier).state = ChatState(messages: messages);
     return messages;
   }
 
-  void _syncChatState(List<Message> messages, {bool isLoading = false}) {
-    ref.read(chatStateProvider.notifier).state = ChatState(
-      messages: messages,
-      isLoading: isLoading,
-    );
-  }
+
 
   Message _greeting() => Message(
         id: _initialGreetingId,
@@ -151,7 +143,7 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
       final detectedService = composio?.detectService(trimmed);
 
       String reply;
-      if (composio.isConnected && detectedService != null) {
+      if (composio != null && composio.isConnected && detectedService != null) {
         // Route to Composio automation
         removeTypingIndicator();
         final List<Message> withStatus = [
@@ -168,7 +160,7 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
         state = AsyncValue.data(withWorkingTyping);
 
         reply = await composio.sendAutomationInstruction(trimmed);
-      } else if (detectedService != null && !composio.isConnected) {
+      } else if (composio != null && detectedService != null && !composio.isConnected) {
         // Service detected but Composio not configured yet
         removeTypingIndicator();
         reply = 'I detected you want to use ${detectedService.name}. '
@@ -275,13 +267,6 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
         timestamp: DateTime.now(),
       ),
     ];
-  }
-
-  void addTypingIndicator() {
-    final current = state.value ?? <Message>[];
-    final updated = _addTypingIndicatorTo(current);
-    state = AsyncValue.data(updated);
-    _syncChatState(updated, isLoading: true);
   }
 
   void removeTypingIndicator() {

@@ -38,7 +38,7 @@ const List<ComposioService> kComposioServices = [
   ComposioService(id: 'discord', name: 'Discord', keywords: ['discord server', 'discord channel', 'discord dm', 'discord', 'guild'], colorValue: 0xFF5865F2, iconChar: 'D'),
   ComposioService(id: 'linkedin', name: 'LinkedIn', keywords: ['linkedin profile', 'linkedin connection', 'linkedin job', 'linkedin post', 'linkedin', 'connection', 'job'], colorValue: 0xFF0A66C2, iconChar: 'L'),
   ComposioService(id: 'reddit', name: 'Reddit', keywords: ['subreddit', 'reddit post', 'reddit', 'upvote', 'thread', 'comment'], colorValue: 0xFFFF4500, iconChar: 'R'),
-  ComposioService(id: 'googleheets', name: 'Google Sheets', keywords: ['google sheets', 'spreadsheet', 'sheet', 'column', 'row', 'cell', 'table'], colorValue: 0xFF0F9D58, iconChar: 'S'),
+  ComposioService(id: 'googlesheets', name: 'Google Sheets', keywords: ['google sheets', 'spreadsheet', 'sheet', 'column', 'row', 'cell', 'table'], colorValue: 0xFF0F9D58, iconChar: 'S'),
 ];
 
 /// Manages Composio integration via REST API.
@@ -59,17 +59,11 @@ class ComposioServiceManager {
   static const MethodChannel _channel = MethodChannel('stremini.composio');
   static const EventChannel _eventChannel = EventChannel('stremini.composio/events');
 
-  // Composio Consumer API Key — embedded, split to bypass secret scanning
-  // Assembled at runtime; never appears as a complete string in source.
-  static const String _ckP1 = 'ck__';
-  static const String _ckP2 = '3OYxEWJkq';
-  static const String _ckP3 = '1dabx3b3gi';
-
-  static const String _configuredKey = 'composio_dev_configured';
-  static const String _composioApiBase = 'https://backend.composio.dev/api/v1';
+  // The Composio consumer key is embedded on the native Kotlin side.
+  // The Dart side delegates all Composio operations via MethodChannel.
 
   StreamSubscription? _eventSub;
-  bool _isConfigured = true; // Always true — key is embedded
+  bool _isConfigured = true; // Always true — key is embedded natively
 
   /// Connection status per service: serviceId → bool
   final Map<String, bool> _serviceStatus = {};
@@ -77,11 +71,8 @@ class ComposioServiceManager {
   bool get isConnected => _isConfigured;
   Map<String, bool> get serviceStatus => Map.unmodifiable(_serviceStatus);
 
-  /// Initialize — check if developer key is configured, listen for deep-link events.
+  /// Initialize — listen for deep-link events from native.
   Future<void> initialize() async {
-    final prefs = await SharedPreferences.getInstance();
-    _isConfigured = prefs.getBool(_configuredKey) ?? false;
-
     if (Platform.isAndroid) {
       try {
         final connected = await _channel.invokeMethod<bool>('isComposioConnected') ?? false;
@@ -110,25 +101,7 @@ class ComposioServiceManager {
     return _serviceStatus[serviceId] ?? false;
   }
 
-  /// Set the developer Composio API key.
-  /// This is called from Settings — the developer sets it once.
-  Future<void> setDeveloperApiKey(String apiKey) async {
-    _isConfigured = apiKey.isNotEmpty;
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_configuredKey, apiKey.isNotEmpty);
-
-    if (Platform.isAndroid) {
-      try {
-        await _channel.invokeMethod('saveComposioToken', {'token': apiKey});
-      } catch (_) {}
-    }
-
-    // Refresh service statuses after setting the key
-    if (_isConfigured) {
-      await refreshServiceStatuses();
-    }
-  }
 
   /// Connect a specific service via Composio managed auth.
   /// This opens ComposioAuthActivity (WebView) on the native side.
@@ -221,14 +194,4 @@ class ComposioServiceManager {
     }
   }
 
-  /// Get the MCP URL (for reference / advanced use).
-  Future<String> getMcpUrl() async {
-    if (Platform.isAndroid) {
-      try {
-        return await _channel.invokeMethod('getComposioMcpUrl') as String? ??
-            'https://connect.composio.dev/mcp';
-      } catch (_) {}
-    }
-    return 'https://connect.composio.dev/mcp';
-  }
 }

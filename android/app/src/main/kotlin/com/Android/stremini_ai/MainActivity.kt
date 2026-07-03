@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import android.content.pm.PackageManager
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -27,11 +28,6 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val MIC_REQUEST_CODE = 1001
-        private const val COMPOSIO_PREFS = "composio_prefs"
-        private const val KEY_COMPOSIO_TOKEN = "composio_token"
-        // Opens Composio dashboard where user can get their API key
-        private const val COMPOSIO_DASHBOARD_URL = "https://composio.dev/settings"
-        private const val COMPOSIO_MCP_URL = "https://connect.composio.dev/mcp"
     }
 
     private val microphonePermissionRequestCode = MIC_REQUEST_CODE
@@ -93,7 +89,7 @@ class MainActivity : FlutterActivity() {
                 getComposioToken = ::getComposioToken,
                 saveComposioToken = ::saveComposioToken,
                 isComposioConnected = ::isComposioConnected,
-                getComposioMcpUrl = { COMPOSIO_MCP_URL },
+                getComposioMcpUrl = ::getComposioMcpUrl,
                 setEventSink = { sink -> _composioEventSink = sink },
                 // Composio service management
                 connectComposioService = { serviceId -> composioClient.connectService(serviceId) },
@@ -180,41 +176,22 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    // ── Composio actions ────────────────────────────────────────────────────
+    // ── Composio actions (delegated to embedded ComposioClient) ──────
 
-    /** Open Composio dashboard so user can get their API key */
-    private fun openComposioConnect() {
-        try {
-            val tab = CustomTabsIntent.Builder()
-                .setShowTitle(true)
-                .build()
-            tab.launchUrl(this, Uri.parse(COMPOSIO_DASHBOARD_URL))
-        } catch (e: Exception) {
-            Log.e(TAG, "Error opening Composio", e)
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(COMPOSIO_DASHBOARD_URL))
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            startActivity(intent)
-        }
-    }
+    /** Always true — consumer key is embedded */
+    private fun isComposioConnected(): Boolean = composioClient.isConfigured()
 
-    /** Get saved Composio token */
-    private fun getComposioToken(): String? {
-        return EncryptedPrefs.getEncrypted(this, COMPOSIO_PREFS)
-            .getString(KEY_COMPOSIO_TOKEN, null)
-    }
+    /** No-op — key is embedded, users don't set it */
+    private fun getComposioToken(): String? = null
 
-    /** Save Composio Bearer token (called after Flutter exchanges auth code) */
-    private fun saveComposioToken(token: String) {
-        val prefs = EncryptedPrefs.getEncrypted(this, COMPOSIO_PREFS)
-        if (token.isBlank()) prefs.remove(KEY_COMPOSIO_TOKEN)
-        else prefs.putString(KEY_COMPOSIO_TOKEN, token)
-        Log.i(TAG, "Composio token saved (encrypted)")
-    }
+    /** No-op — key is embedded */
+    private fun saveComposioToken(token: String) {}
 
-    /** Check if Composio is connected */
-    private fun isComposioConnected(): Boolean {
-        return getComposioToken() != null
-    }
+    /** No-op — users connect per-service, not at dashboard level */
+    private fun openComposioConnect() {}
+
+    /** MCP URL constant */
+    private fun getComposioMcpUrl(): String = "https://connect.composio.dev/mcp"
 
     // ── Permission helpers ──────────────────────────────────────────────────
 

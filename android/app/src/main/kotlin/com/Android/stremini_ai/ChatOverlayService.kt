@@ -613,6 +613,7 @@ class ChatOverlayService : Service(), View.OnTouchListener {
                         shape = GradientDrawable.OVAL
                         setColor(svc.color.toInt())
                     }
+                    serviceConnectionState[svc.id] = false
                     serviceScope.launch { composioClient.disconnectService(svc.id) }
                     Toast.makeText(this@ChatOverlayService, "${svc.name} disconnected", Toast.LENGTH_SHORT).show()
                 } else {

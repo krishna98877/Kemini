@@ -6,10 +6,6 @@ import '../core/theme/app_colors.dart';
 import '../core/widgets/app_container.dart';
 import '../providers/app_settings_provider.dart';
 import '../services/keyboard_service.dart';
-import '../services/composio_service.dart';
-
-final keyboardServiceProvider =
-    Provider<KeyboardService>((ref) => KeyboardService());
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -187,125 +183,52 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Widget _buildComposioCard(dynamic settings, BuildContext context) {
-    final composioService = ComposioServiceManager();
-    // Initialize the service state from prefs
-    return StatefulBuilder(
-      builder: (context, setState) {
-        composioService.initialize();
-        final connected = composioService.isConnected;
-        final subColor = Theme.of(context).textTheme.labelSmall?.color ??
-            const Color(0xFF64748B);
-
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: connected ? const Color(0xFF34C47C).withValues(alpha: 0.4)
-                   : Theme.of(context).dividerColor,
+    // Composio is always connected (embedded consumer key).
+    // The card shows status and lets users open the connectors panel.
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF34C47C).withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: const Color(0xFF34C47C).withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.link_rounded,
+              color: Color(0xFF34C47C),
+              size: 20,
             ),
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: connected
-                      ? const Color(0xFF34C47C).withValues(alpha: 0.15)
-                      : const Color(0xFF23A6E2).withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  connected ? Icons.link_rounded : Icons.link_off_rounded,
-                  color: connected ? const Color(0xFF34C47C) : const Color(0xFF23A6E2),
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Connect Automations',
-                      style: TextStyle(
-                        color: Theme.of(context).textTheme.bodyLarge?.color ?? Colors.white,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      connected
-                          ? 'Composio connected — automate Gmail, Notion, Slack'
-                          : 'Connect Gmail, Notion, Slack and more via Composio',
-                      style: TextStyle(color: subColor, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              if (!connected)
-                GestureDetector(
-                  onTap: () async {
-                    try {
-                      await composioService.openConnectPage();
-                      if (mounted) setState(() {});
-                    } catch (e) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Could not open Composio. Try again.'),
-                            backgroundColor: AppColors.danger,
-                          ),
-                        );
-                      }
-                    }
-                  },
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF23A6E2).withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      'Connect',
-                      style: TextStyle(
-                        color: Color(0xFF23A6E2),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                )
-              else
-                GestureDetector(
-                  onTap: () async {
-                    await composioService.disconnect();
-                    if (mounted) setState(() {});
-                  },
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF34C47C).withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      'Disconnect',
-                      style: TextStyle(
-                        color: Color(0xFF34C47C),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Automations Ready',
+                  style: TextStyle(
+                    color: Theme.of(context).textTheme.bodyLarge?.color ?? Colors.white,
+                    fontSize: 14,
                   ),
                 ),
-            ],
+                const SizedBox(height: 2),
+                Text(
+                  'GitHub, Gmail, Discord, and 10 more services. Tap the plug icon in chat to connect.',
+                  style: TextStyle(color: Theme.of(context).textTheme.labelSmall?.color ?? const Color(0xFF64748B), fontSize: 12),
+                ),
+              ],
+            ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 

@@ -66,7 +66,7 @@ class ComposioClient(private val context: Context) {
             ServiceDef("discord",      "Discord",      listOf("discord","discord server","discord channel","discord dm","guild"),                      0xFF5865F2, "D"),
             ServiceDef("linkedin",     "LinkedIn",     listOf("linkedin","linkedin profile","linkedin connection","linkedin job","linkedin post"),      0xFF0A66C2, "L"),
             ServiceDef("reddit",       "Reddit",       listOf("reddit","subreddit","reddit post","upvote","comment","thread"),                        0xFFFF4500, "R"),
-            ServiceDef("googleheets",  "Google Sheets",listOf("sheet","spreadsheet","google sheets","cell","row","column","table"),                  0xFF0F9D58, "S"),
+            ServiceDef("googlesheets",  "Google Sheets",listOf("sheet","spreadsheet","google sheets","cell","row","column","table"),                  0xFF0F9D58, "S"),
         )
 
         /** Map of common user intents → Composio action IDs */
@@ -140,7 +140,7 @@ class ComposioClient(private val context: Context) {
      */
     suspend fun isServiceConnected(serviceId: String): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            val apiKey = getDeveloperApiKey() ?: return@withContext false
+            val apiKey = getDeveloperApiKey()
             val client = secureHttpClient(connectTimeoutSeconds = 10, readTimeoutSeconds = 15, useCase = "composio")
             val request = Request.Builder()
                 .url("$COMPOSIO_API_BASE/connectedAccounts?providerName=${URLEncoder.encode(serviceId, "UTF-8")}")
@@ -164,7 +164,7 @@ class ComposioClient(private val context: Context) {
      */
     suspend fun getConnectedServices(): Map<String, List<String>> = withContext(Dispatchers.IO) {
         runCatching {
-            val apiKey = getDeveloperApiKey() ?: return@withContext emptyMap()
+            val apiKey = getDeveloperApiKey()
             val client = secureHttpClient(connectTimeoutSeconds = 10, readTimeoutSeconds = 15, useCase = "composio")
             val request = Request.Builder()
                 .url("$COMPOSIO_API_BASE/connectedAccounts")
@@ -217,7 +217,7 @@ class ComposioClient(private val context: Context) {
 
         kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
             try {
-                val apiKey = getDeveloperApiKey() ?: return@launch
+                val apiKey = getDeveloperApiKey()
                 val body = JSONObject().apply {
                     put("providerName", serviceId)
                     put("redirectUri", REDIRECT_URI)
@@ -308,7 +308,7 @@ class ComposioClient(private val context: Context) {
 
     suspend fun disconnectService(serviceId: String): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            val apiKey = getDeveloperApiKey() ?: return@withContext false
+            val apiKey = getDeveloperApiKey()
             val connected = getConnectedServices()
             val accountIds = connected[serviceId] ?: return@withContext false
             val client = secureHttpClient(connectTimeoutSeconds = 10, readTimeoutSeconds = 15, useCase = "composio")
@@ -501,7 +501,7 @@ Return ONLY valid JSON, nothing else. Example: {"actionId":"GMAIL_SEND_EMAIL","p
             "linkedin" -> "LINKEDIN_CREATE_A_POST" to mapOf("text" to instruction)
             "reddit" -> "REDDIT_CREATE_A_POST" to mapOf("title" to instruction, "text" to instruction)
             "googledrive" -> "GOOGLE_DRIVE_UPLOAD_FILE" to mapOf("content" to instruction)
-            "googleheets" -> "GOOGLE_SHEETS_READ_SHEET" to mapOf("spreadsheetId" to "", "range" to "A1:Z100")
+            "googlesheets" -> "GOOGLE_SHEETS_READ_SHEET" to mapOf("spreadsheetId" to "", "range" to "A1:Z100")
             else -> null
         }
     }

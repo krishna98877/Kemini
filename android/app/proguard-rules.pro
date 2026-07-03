@@ -17,6 +17,9 @@
 -keep class com.Android.stremini_ai.EncryptedPrefs { *; }
 -keep class com.Android.stremini_ai.EncryptedPrefs$EncryptedSharedPreferencesWrapper { *; }
 -keep class com.Android.stremini_ai.SecurityGuardsKt { *; }
+-keep class com.Android.stremini_ai.ComposioClient { *; }
+-keep class com.Android.stremini_ai.ComposioClient$* { *; }
+-keep class com.Android.stremini_ai.ComposioAuthActivity { *; }
 
 # ── OkHttp ───────────────────────────────────────────────────────
 -dontwarn okhttp3.**
@@ -34,12 +37,9 @@
 -keep public class * extends android.content.BroadcastReceiver
 -keep public class * extends android.content.ContentProvider
 
-# ── Play Core (Flutter deferred-component compat) ────────────────
--dontwarn com.google.android.play.core.**
--keep class com.google.android.play.core.** { *; }
--keep class com.google.android.play.core.splitinstall.** { *; }
--keep class com.google.android.play.core.splitcompat.** { *; }
--keep class com.google.android.play.core.tasks.** { *; }
+# ── ML Kit (OCR in MainActivity) ──────────────────────────────
+-keep class com.google.mlkit.** { *; }
+-dontwarn com.google.mlkit.**
 
 # ── Native methods ───────────────────────────────────────────────
 -keepclasseswithmembernames class * {

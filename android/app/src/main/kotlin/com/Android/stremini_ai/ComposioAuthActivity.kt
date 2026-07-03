@@ -233,16 +233,20 @@ class ComposioAuthActivity : AppCompatActivity() {
             val status = uri.getQueryParameter("status")
             val provider = uri.getQueryParameter("provider") ?: serviceId
 
-            if (status == "success" || status == "connected") {
-                showSuccess()
-            } else if (uri.getQueryParameter("code") != null) {
-                // Legacy auth code flow — still a success
+            if (status == "success" || status == "connected" || uri.getQueryParameter("code") != null) {
+                // Notify MainActivity so it can refresh the connected services cache
+                runCatching {
+                    val intent = Intent(this, MainActivity::class.java).apply {
+                        data = uri
+                        addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    }
+                    startActivity(intent)
+                }
                 showSuccess()
             } else if (status == "error" || status == "failed") {
                 val error = uri.getQueryParameter("error") ?: "Connection failed"
                 showError(error)
             } else {
-                // Unknown status but still our redirect — assume success
                 showSuccess()
             }
             return true  // Don't load the deep-link URL in WebView
