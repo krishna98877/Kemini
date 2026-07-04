@@ -1,0 +1,9 @@
+# Stremini AI — local.properties template
+# Copy this file to local.properties and fill in the values:
+#   cp local.properties.example local.properties
+
+# Flutter SDK path (set by Flutter CLI automatically)
+# flutter.sdk=/path/to/flutter/sdk
+
+# Composio consumer key (embedded at build time)
+composio.consumer.key=ck__3OYxEWJkq1dabx3b3gi

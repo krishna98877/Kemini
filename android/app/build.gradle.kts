@@ -8,7 +8,6 @@ android {
     namespace = "com.android.stremini_ai"
     // UPDATED: 34 -> 36 (Required by image_picker)
     compileSdk = 36
-    ndkVersion = "29.0.14206865"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

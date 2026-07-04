@@ -1,8 +1,7 @@
-gradle-wrapper.jar
+# Gradle wrapper JAR and scripts must be committed for the repo to be buildable
+# Only exclude local build artifacts and secrets
 /.gradle
 /captures/
-/gradlew
-/gradlew.bat
 /local.properties
 GeneratedPluginRegistrant.java
 .cxx/
