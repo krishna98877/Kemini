@@ -43,8 +43,8 @@ const List<ComposioService> kComposioServices = [
 ///
 /// ## Managed Authentication Architecture
 ///
-/// The app uses the developer's Composio Consumer API Key (embedded, split
-/// into parts). End users NEVER provide any key.
+/// The app uses the developer's Composio Consumer API Key (injected via
+/// BuildConfig from local.properties / env var). End users NEVER provide any key.
 ///
 /// Flow:
 /// 1. User taps "Connect GitHub" → native side calls Composio REST API
@@ -69,22 +69,40 @@ class ComposioServiceManager {
   bool get isConnected => _isConfigured;
   Map<String, bool> get serviceStatus => Map.unmodifiable(_serviceStatus);
 
-  /// Initialize — listen for deep-link events from native.
+  /// Initialize — pull persisted connection state from native, then listen
+  /// for live deep-link events.
   Future<void> initialize() async {
     if (Platform.isAndroid) {
       try {
         final connected = await _channel.invokeMethod<bool>('isComposioConnected') ?? false;
         if (connected) _isConfigured = true;
       } catch (_) {}
+
+      // Pull the real per-service connection map from native so that
+      // services connected in a previous session are recognised immediately
+      // instead of appearing disconnected until the user re-connects.
+      await refreshServiceStatuses();
     }
 
     _eventSub = _eventChannel.receiveBroadcastStream().listen((event) {
-      if (event is Map && event['event'] == 'connection_success') {
-        // A service was just connected via WebView auth
-        final serviceId = event['serviceId'] as String?;
-        if (serviceId != null) {
-          _serviceStatus[serviceId] = true;
-          debugPrint('Composio: $serviceId connected via auth');
+      if (event is Map) {
+        final eventType = event['event'] as String?;
+        if (eventType == 'connection_success') {
+          // A service was just connected via WebView auth
+          final serviceId = event['serviceId'] as String?;
+          if (serviceId != null) {
+            _serviceStatus[serviceId] = true;
+            debugPrint('Composio: $serviceId connected via auth');
+          }
+        } else if (eventType == 'connection_lost') {
+          // A 401 triggered a local disconnect on the native side.
+          // Update the Dart cache so the UI and next automation check
+          // immediately reflect reality without waiting for a restart.
+          final serviceId = event['serviceId'] as String?;
+          if (serviceId != null) {
+            _serviceStatus[serviceId] = false;
+            debugPrint('Composio: $serviceId disconnected (session expired)');
+          }
         }
       }
     });

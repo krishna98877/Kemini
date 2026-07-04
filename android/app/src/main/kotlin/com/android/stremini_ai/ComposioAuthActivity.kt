@@ -9,7 +9,9 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.view.WindowManager
+import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
+import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.ImageView
@@ -186,6 +188,17 @@ class ComposioAuthActivity : AppCompatActivity() {
             return
         }
 
+        // Clear any previous OAuth session so the user is always prompted
+        // to log in with the correct account — prevents silent wrong-account
+        // reconnects when switching between personal / work accounts.
+        CookieManager.getInstance().apply {
+            removeAllCookies(null)
+            flush()
+        }
+        webView.clearCache(true)
+        webView.clearHistory()
+        WebStorage.getInstance().deleteAllData()
+
         // Set up WebView client to detect redirect
         webView.webViewClient = object : WebViewClient() {
 
@@ -321,8 +334,15 @@ class ComposioAuthActivity : AppCompatActivity() {
         try {
             if (::webView.isInitialized) {
                 webView.stopLoading()
+                webView.clearCache(true)
+                webView.clearHistory()
                 webView.destroy()
             }
+        } catch (_: Exception) {}
+        // Wipe cookies so no stale session lingers for the next auth attempt
+        try {
+            CookieManager.getInstance().removeAllCookies(null)
+            CookieManager.getInstance().flush()
         } catch (_: Exception) {}
         super.onDestroy()
     }

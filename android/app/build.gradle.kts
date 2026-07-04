@@ -28,6 +28,19 @@ android {
 
         vectorDrawables.useSupportLibrary = true
         multiDexEnabled = true
+
+        // Inject Composio consumer key from local.properties or env var
+        val localProps = rootProject.file("local.properties")
+        val props = java.util.Properties()
+        if (localProps.exists()) props.load(localProps.inputStream())
+        val composioKey = props.getProperty("composio.consumer.key")
+            ?: System.getenv("COMPOSIO_CONSUMER_KEY")
+            ?: ""
+        buildConfigField("String", "COMPOSIO_CONSUMER_KEY", "\"$composioKey\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {

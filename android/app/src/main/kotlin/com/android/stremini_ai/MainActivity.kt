@@ -1,8 +1,10 @@
 package com.android.stremini_ai
 
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -148,6 +150,28 @@ class MainActivity : FlutterActivity() {
                 _composioEventSink = null
             }
         })
+
+        // Listen for 401-triggered local disconnects from ComposioClient
+        // and forward them to Flutter so the Dart-side cache stays in sync.
+        val disconnectFilter = IntentFilter("com.android.stremini_ai.SERVICE_DISCONNECTED")
+        registerReceiver(_disconnectReceiver, disconnectFilter)
+    }
+
+    private val _disconnectReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val serviceId = intent?.getStringExtra("serviceId") ?: return
+            _composioEventSink?.success(mapOf(
+                "event" to "connection_lost",
+                "serviceId" to serviceId,
+                "status" to "disconnected"
+            ))
+            refreshConnectedServicesCache()
+        }
+    }
+
+    override fun onDestroy() {
+        try { unregisterReceiver(_disconnectReceiver) } catch (_: Exception) {}
+        super.onDestroy()
     }
 
     // ── OCR channel ─────────────────────────────────────────────────────────

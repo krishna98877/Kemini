@@ -46,11 +46,6 @@ final composioServiceProvider = FutureProvider<ComposioServiceManager>((ref) asy
   return mgr;
 });
 
-/// Holds a snapshot of the current chat state for widgets that need
-/// both the message list and loading/error status in a single object.
-// chatStateProvider removed — was written but never read by any widget
-
-
 class ChatNotifier extends AsyncNotifier<List<Message>> {
   static const String _initialGreetingId = 'initial_greeting';
 

@@ -1,16 +1,10 @@
 package com.android.stremini_ai
 
 import android.content.Context
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
- * AI Backend Client — now delegates entirely to GroqClient.
- *
- * Kept as a thin wrapper so that existing code (ChatCommandCoordinator,
- * KeyboardPanels, etc.) doesn't need import changes.
- *
- * The old Cloudflare Worker backend is no longer used for chat.
+ * AI Backend Client — delegates to GroqClient.
+ * Thin wrapper so existing callers don't need import changes.
  */
 class AIBackendClient(context: Context) {
 

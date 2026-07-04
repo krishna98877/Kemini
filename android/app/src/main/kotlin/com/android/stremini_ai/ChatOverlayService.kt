@@ -167,7 +167,11 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         startForeground(NOTIFICATION_ID, buildNotification())
 
         bubbleController        = BubbleController(::hideBubble, ::showBubble).apply { setVisible(isBubbleVisible) }
-        floatingChatController  = FloatingChatController(::showFloatingChatbot, ::hideFloatingChatbot)
+        floatingChatController  = FloatingChatController(
+            isCurrentlyVisible = { isChatbotVisible },
+            onShow = ::showFloatingChatbot,
+            onHide = ::hideFloatingChatbot
+        )
         idleAnimationController = IdleAnimationController(
             onIdle = { if (!isMenuExpanded && !isDragging && !isMenuAnimating) shrinkBubble() },
             onWake = { restoreBubble() }
@@ -805,7 +809,7 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         // ── Close
         view.findViewById<ImageView>(R.id.btn_close_chat)?.setOnClickListener {
             stopChatVoiceInput()
-            hideFloatingChatbot()
+            floatingChatController.hide()
             toggleFeature(menuItems[1].id) // btn_brain
         }
 

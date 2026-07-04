@@ -7,8 +7,6 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 private val TRUSTED_BACKEND_HOSTS = setOf(
-    "ai-keyboard-backend.vishwajeetadkine705.workers.dev",
-    "agentic-github-debugger.vishwajeetadkine705.workers.dev",
     // Groq API — LLM brain
     "api.groq.com",
     // Composio — managed auth automation
