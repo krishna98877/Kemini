@@ -129,7 +129,7 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
     try {
       // ── Composio NLU routing ──────────────────────────────────────────
       final composioAsync = ref.read(composioServiceProvider);
-      final composio = composioAsync.valueOrNull;
+      final composio = composioAsync.value;
       final detectedService = composio?.detectService(trimmed);
 
       String reply;
