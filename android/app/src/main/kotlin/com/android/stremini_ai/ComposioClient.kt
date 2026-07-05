@@ -62,6 +62,7 @@ data class ServiceDef(
     val color: Long,
     val iconChar: String,
     val iconRes: Int,
+    val authConfigId: String = "",
 )
 
 class ComposioClient(
@@ -79,28 +80,25 @@ class ComposioClient(
 
     companion object {
         private const val TAG = "ComposioClient"
-        const val COMPOSIO_API_BASE = "https://backend.composio.dev/api/v3.1"
+        const val COMPOSIO_API_BASE = "https://backend.composio.dev/api/v3"
+        const val COMPOSIO_TOOLS_API_BASE = "https://backend.composio.dev/api/v3.1"
         const val COMPOSIO_CONNECT_BASE = "https://connect.composio.dev"
 
         /** Deep-link scheme for OAuth callback */
         const val REDIRECT_URI = "stremini://composio"
 
         val ALL_SERVICES = listOf(
-            ServiceDef("github",       "GitHub",       listOf("github","repo","repository","commit","pull request","issue","branch"),           0xFF6e40c9, "G", R.drawable.logo_github),
-            ServiceDef("gmail",        "Gmail",        listOf("gmail","email","mail","send email","inbox","draft"),                               0xFFEA4335, "M", R.drawable.logo_gmail),
-            ServiceDef("telegram",     "Telegram",     listOf("telegram","tg","telegram message","telegram chat","telegram channel"),               0xFF0088cc, "T", R.drawable.logo_telegram),
-            ServiceDef("twitter",      "Twitter",      listOf("twitter","tweet","x.com","post tweet","timeline","retweet"),                         0xFF1DA1F2, "X", R.drawable.logo_twitter),
-            ServiceDef("instagram",    "Instagram",    listOf("instagram","ig","instagram story","instagram reel","instagram dm","instagram post"), 0xFFE4405F, "I", R.drawable.logo_instagram),
-            ServiceDef("facebook",     "Facebook",     listOf("facebook","fb","facebook post","facebook page","facebook group"),                      0xFF1877F2, "F", R.drawable.logo_facebook),
-            ServiceDef("whatsapp",     "WhatsApp",     listOf("whatsapp","wa","whats app","whatsapp message"),                                       0xFF25D366, "W", R.drawable.logo_whatsapp),
-            ServiceDef("googlechrome", "Chrome",       listOf("chrome","browser","open url","browse","search","tab"),                                 0xFF4285F4, "C", R.drawable.logo_chrome),
-            ServiceDef("googledrive",  "Google Drive", listOf("drive","google drive","upload","drive file","drive folder","share file"),               0xFF0F9D58, "D", R.drawable.logo_googledrive),
-            ServiceDef("discord",      "Discord",      listOf("discord","discord server","discord channel","discord dm","guild"),                      0xFF5865F2, "D", R.drawable.logo_discord),
-            ServiceDef("linkedin",     "LinkedIn",     listOf("linkedin","linkedin profile","linkedin connection","linkedin job","linkedin post"),      0xFF0A66C2, "L", R.drawable.logo_linkedin),
-            ServiceDef("reddit",       "Reddit",       listOf("reddit","subreddit","reddit post","upvote","comment","thread"),                        0xFFFF4500, "R", R.drawable.logo_reddit),
-            ServiceDef("googlesheets",  "Google Sheets",listOf("sheet","spreadsheet","google sheets","cell","row","column","table"),                  0xFF0F9D58, "S", R.drawable.logo_googlesheets),
-            ServiceDef("youtube",      "YouTube",      listOf("youtube","youtube video","youtube channel","upload video","youtube comment","subscribe","playlist","youtube shorts"), 0xFFFF0000, "Y", R.drawable.logo_youtube),
-            ServiceDef("tiktok",       "TikTok",       listOf("tiktok","tiktok video","tiktok post","tiktok dm","tiktok comment","tiktok account","duet"),              0xFF000000, "Tk", R.drawable.logo_tiktok),
+            ServiceDef("github",       "GitHub",       listOf("github","repo","repository","commit","pull request","issue","branch"),           0xFF6e40c9, "G", R.drawable.logo_github, "ac_YFSxski2H_Uj"),
+            ServiceDef("gmail",        "Gmail",        listOf("gmail","email","mail","send email","inbox","draft"),                               0xFFEA4335, "M", R.drawable.logo_gmail, "ac__21liBysL4x9"),
+            ServiceDef("instagram",    "Instagram",    listOf("instagram","ig","instagram story","instagram reel","instagram dm","instagram post"), 0xFFE4405F, "I", R.drawable.logo_instagram, "ac_V1hFeA4Iy2EF"),
+            ServiceDef("facebook",     "Facebook",     listOf("facebook","fb","facebook post","facebook page","facebook group"),                      0xFF1877F2, "F", R.drawable.logo_facebook, "ac_u1qeC8YT6l90"),
+            ServiceDef("whatsapp",     "WhatsApp",     listOf("whatsapp","wa","whats app","whatsapp message"),                                       0xFF25D366, "W", R.drawable.logo_whatsapp, "ac_412d-2RkonCA"),
+            ServiceDef("googledrive",  "Google Drive", listOf("drive","google drive","upload","drive file","drive folder","share file"),               0xFF0F9D58, "D", R.drawable.logo_googledrive, "ac_0_7ITaqzgnMC"),
+            ServiceDef("discord",      "Discord",      listOf("discord","discord server","discord channel","discord dm","guild"),                      0xFF5865F2, "D", R.drawable.logo_discord, "ac_Jh_gaZbL4nDx"),
+            ServiceDef("linkedin",     "LinkedIn",     listOf("linkedin","linkedin profile","linkedin connection","linkedin job","linkedin post"),      0xFF0A66C2, "L", R.drawable.logo_linkedin, "ac_zVwn7nQv2PQZ"),
+            ServiceDef("reddit",       "Reddit",       listOf("reddit","subreddit","reddit post","upvote","comment","thread"),                        0xFFFF4500, "R", R.drawable.logo_reddit, "ac_BNHdyMo8wNI9"),
+            ServiceDef("googlesheets",  "Google Sheets",listOf("sheet","spreadsheet","google sheets","cell","row","column","table"),                  0xFF0F9D58, "S", R.drawable.logo_googlesheets, "ac_iR7c2eb7ecrA"),
+            ServiceDef("youtube",      "YouTube",      listOf("youtube","youtube video","youtube channel","upload video","youtube comment","subscribe","playlist","youtube shorts"), 0xFFFF0000, "Y", R.drawable.logo_youtube, "ac_CF5aPWE_QIen"),
         )
 
         /** Map of common user intents → Composio action IDs */
@@ -254,7 +252,7 @@ class ComposioClient(
             val apiKey = getDeveloperApiKey()
             val client = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
             val request = Request.Builder()
-                .url("$COMPOSIO_API_BASE/sessions/$sessionId/toolkits")
+                .url("$COMPOSIO_API_BASE/connected_accounts")
                 .addHeader("x-api-key", apiKey)
                 .get()
                 .build()
@@ -280,16 +278,15 @@ class ComposioClient(
     }
 
     /**
-     * Get all connected services via session toolkits endpoint.
+     * Get all connected services via GET /api/v3/connected_accounts.
      */
     suspend fun getConnectedServices(): Map<String, List<String>> = withContext(Dispatchers.IO) {
         runCatching {
-            val sessionId = getOrCreateSession()
-            if (sessionId.isBlank()) return@withContext emptyMap<String, List<String>>()
+            val apiKey = getDeveloperApiKey()
             val apiKey = getDeveloperApiKey()
             val client = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
             val request = Request.Builder()
-                .url("$COMPOSIO_API_BASE/sessions/$sessionId/toolkits")
+                .url("$COMPOSIO_API_BASE/connected_accounts")
                 .addHeader("x-api-key", apiKey)
                 .get()
                 .build()
@@ -298,21 +295,15 @@ class ComposioClient(
                 handleSessionError(response.code)
                 val body = response.body?.string() ?: return@use emptyMap<String, List<String>>()
                 val json = JSONObject(body)
-                val toolkits = json.optJSONArray("items") ?: json.optJSONArray("toolkits") ?: json.optJSONArray("data")
+                val accounts = json.optJSONArray("items") ?: return@use emptyMap<String, List<String>>()
                 val result = mutableMapOf<String, MutableList<String>>()
-                if (toolkits != null) {
-                    for (i in 0 until toolkits.length()) {
-                        val tk = toolkits.optJSONObject(i) ?: continue
-                        val slug = tk.optString("slug")
-                        val isConnected = tk.optBoolean("is_connected", false)
-                            || tk.optString("status") == "connected"
-                            || !tk.optString("connected_account_id").isNullOrBlank()
-                        if (slug.isNotBlank() && isConnected) {
-                            // Store the real connected_account_id. If blank, use the slug
-                            // so disconnectService can identify which toolkit to disconnect.
-                            val acctId = tk.optString("connected_account_id", "")
-                            result[slug] = mutableListOf(if (acctId.isNotBlank()) acctId else slug)
-                        }
+                for (i in 0 until accounts.length()) {
+                    val acct = accounts.optJSONObject(i) ?: continue
+                    val slug = acct.optJSONObject("toolkit")?.optString("slug") ?: ""
+                    val acctId = acct.optString("id")
+                    val status = acct.optString("status")
+                    if (slug.isNotBlank() && status == "ACTIVE" && acctId.isNotBlank()) {
+                        result.getOrPut(slug) { mutableListOf() }.add(acctId)
                     }
                 }
                 result
@@ -363,21 +354,24 @@ class ComposioClient(
         }
         workScope.launch(Dispatchers.IO) {
             try {
-                val sessionId = getOrCreateSession()
-                if (sessionId.isBlank()) {
+                val apiKey = getDeveloperApiKey()
+                val svc = ALL_SERVICES.find { it.id == serviceId }
+                val authConfigId = svc?.authConfigId ?: ""
+                if (authConfigId.isBlank()) {
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Failed to create Composio session", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "This service does not support managed auth", Toast.LENGTH_LONG).show()
                     }
                     return@launch
                 }
-                val apiKey = getDeveloperApiKey()
+                val userId = getStableUserId()
                 val body = JSONObject().apply {
-                    put("toolkit", serviceId)
+                    put("auth_config_id", authConfigId)
+                    put("user_id", userId)
                     put("redirect_uri", REDIRECT_URI)
                 }.toString().toRequestBody("application/json".toMediaType())
 
                 val request = Request.Builder()
-                    .url("$COMPOSIO_API_BASE/sessions/$sessionId/authorize")
+                    .url("$COMPOSIO_API_BASE/connected_accounts/link")
                     .addHeader("x-api-key", apiKey)
                     .addHeader("Content-Type", "application/json")
                     .post(body)
@@ -387,13 +381,7 @@ class ComposioClient(
                 client.newCall(request).execute().use { resp ->
                     val respBody = resp.body?.string() ?: "{}"
                     val json = JSONObject(respBody)
-                    val authUrl = json.optString("redirect_url").ifBlank {
-                        json.optString("redirectUrl").ifBlank {
-                            json.optString("url").ifBlank {
-                                json.optJSONObject("data")?.optString("redirect_url") ?: ""
-                            }
-                        }
-                    }
+                    val authUrl = json.optString("redirect_url").ifBlank { json.optString("redirectUrl") }
                     if (authUrl.isNotBlank()) {
                         withContext(Dispatchers.Main) {
                             val intent = Intent(context, ComposioAuthActivity::class.java).apply {
@@ -449,7 +437,7 @@ class ComposioClient(
                 val isRealAccountId = accountId.length > 20 || accountId.contains("-")
                 val request = if (isRealAccountId) {
                     Request.Builder()
-                        .url("$COMPOSIO_API_BASE/connectedAccounts/$accountId")
+                        .url("$COMPOSIO_API_BASE/connected_accounts/$accountId")
                         .addHeader("x-api-key", apiKey)
                         .delete()
                         .build()
@@ -521,9 +509,8 @@ class ComposioClient(
         val apiKey = getDeveloperApiKey()
 
         val body = JSONObject().apply {
-            put("tool_slug", actionId)
-            put("params", JSONObject(params))
-            if (connectedAccountId.isNotBlank()) put("connected_account_id", connectedAccountId)
+            put("arguments", JSONObject(params))
+            if (connectedAccountId.isNotBlank()) put("connectedAccountId", connectedAccountId)
         }.toString().toRequestBody("application/json".toMediaType())
 
         val sid = getOrCreateSession()
