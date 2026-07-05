@@ -283,7 +283,6 @@ class ComposioClient(
     suspend fun getConnectedServices(): Map<String, List<String>> = withContext(Dispatchers.IO) {
         runCatching {
             val apiKey = getDeveloperApiKey()
-            val apiKey = getDeveloperApiKey()
             val client = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
             val request = Request.Builder()
                 .url("$COMPOSIO_API_BASE/connected_accounts")
