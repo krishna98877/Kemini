@@ -301,7 +301,7 @@ class ComposioClient(
                     val slug = acct.optJSONObject("toolkit")?.optString("slug") ?: ""
                     val acctId = acct.optString("id")
                     val status = acct.optString("status")
-                    if (slug.isNotBlank() && status != "FAILED" && acctId.isNotBlank()) {
+                    if (slug.isNotBlank() && (status == "ACTIVE" || status == "INITIALIZING" || status == "INITIATED") && acctId.isNotBlank()) {
                         result.getOrPut(slug) { mutableListOf() }.add(acctId)
                     }
                 }
@@ -366,7 +366,8 @@ class ComposioClient(
                 val body = JSONObject().apply {
                     put("auth_config_id", authConfigId)
                     put("user_id", userId)
-                    put("redirect_uri", REDIRECT_URI)
+                    // Don't pass redirect_uri — Composio uses its own default
+                    // which shows a success page the user can see in Chrome
                 }.toString().toRequestBody("application/json".toMediaType())
 
                 val request = Request.Builder()
@@ -387,12 +388,29 @@ class ComposioClient(
                             try {
                                 val chromeIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)).apply {
                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    // Prefer Chrome
                                     setPackage("com.android.chrome")
                                 }
                                 context.startActivity(chromeIntent)
+                                // Poll for connection status — check every 3 seconds for up to 2 minutes
+                                workScope.launch {
+                                    var attempts = 0
+                                    while (attempts < 40) {
+                                        kotlinx.coroutines.delay(3000)
+                                        attempts++
+                                        val connected = isServiceConnected(serviceId)
+                                        if (connected) {
+                                            Log.i(TAG, "$serviceId connected after $attempts polls")
+                                            // Broadcast connection success to Dart
+                                            val intent = Intent("com.android.stremini_ai.SERVICE_DISCONNECTED").apply {
+                                                putExtra("event", "connection_success")
+                                                putExtra("serviceId", serviceId)
+                                            }
+                                            context.sendBroadcast(intent)
+                                            break
+                                        }
+                                    }
+                                }
                             } catch (e: Exception) {
-                                // Chrome not available — try default browser
                                 try {
                                     val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)).apply {
                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -520,7 +538,9 @@ class ComposioClient(
 
         val body = JSONObject().apply {
             put("arguments", JSONObject(params))
-            if (connectedAccountId.isNotBlank()) put("connectedAccountId", connectedAccountId)
+            val userId = getStableUserId()
+            put("entity_id", userId)
+            if (connectedAccountId.isNotBlank()) put("connected_account_id", connectedAccountId)
         }.toString().toRequestBody("application/json".toMediaType())
 
         val sid = getOrCreateSession()
