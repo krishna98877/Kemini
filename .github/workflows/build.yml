@@ -29,13 +29,28 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/gradle-wrapper.properties', '**/*.gradle.kts', '**/gradle.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
       - name: Get dependencies
         run: flutter pub get
 
       - name: Build APK
         env:
+          # Composio key — wired through android/local.properties (read by build.gradle.kts).
+          # Repo admin must add this as a GitHub Actions secret.
           COMPOSIO_CONSUMER_KEY: ${{ secrets.COMPOSIO_CONSUMER_KEY }}
-        run: flutter build apk --release
+          # Groq API key — injected into the Dart bundle via --dart-define.
+          # Repo admin must add this as a GitHub Actions secret.
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: flutter build apk --release --dart-define=GROQ_API_KEY=$GROQ_API_KEY
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
