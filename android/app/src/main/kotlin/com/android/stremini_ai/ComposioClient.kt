@@ -169,26 +169,12 @@ class ComposioClient(
     /**
      * Get or create a Composio session for this device.
      * Uses a stable user ID derived from ANDROID_ID. Session ID cached in EncryptedPrefs.
-     * Validates the cached session by listing toolkits — if it fails, creates a new one.
+     * Uses lazy validation: if any session endpoint returns 401/404, the session is
+     * cleared and recreated on the next call.
      */
     private suspend fun getOrCreateSession(): String = withContext(Dispatchers.IO) {
         val cached = prefs.getString("composio_session_id")
-        if (!cached.isNullOrBlank()) {
-            // Validate the cached session is still alive
-            val valid = runCatching {
-                val apiKey = getDeveloperApiKey()
-                val client = secureHttpClient(connectTimeoutSeconds = 5L, readTimeoutSeconds = 10L, useCase = "composio")
-                val req = Request.Builder()
-                    .url("$COMPOSIO_API_BASE/sessions/$cached/toolkits")
-                    .addHeader("x-api-key", apiKey)
-                    .get().build()
-                client.newCall(req).execute().use { it.isSuccessful }
-            }.getOrDefault(false)
-            if (valid) return@withContext cached
-            // Session expired — clear cache and create a new one
-            Log.w(TAG, "Cached session $cached is invalid, creating a new one")
-            prefs.remove("composio_session_id")
-        }
+        if (!cached.isNullOrBlank()) return@withContext cached
 
         val apiKey = getDeveloperApiKey()
         val userId = getStableUserId()
@@ -215,6 +201,17 @@ class ComposioClient(
                 Log.e(TAG, "Session creation failed: HTTP ${response.code} body=$respBody")
             }
             sid
+        }
+    }
+
+    /**
+     * Handle a failed session endpoint call. If the error indicates the session
+     * is invalid (401/404), clear the cached session so the next call creates a new one.
+     */
+    private fun handleSessionError(responseCode: Int) {
+        if (responseCode == 401 || responseCode == 404) {
+            Log.w(TAG, "Session endpoint returned $responseCode — clearing cached session")
+            prefs.remove("composio_session_id")
         }
     }
 
@@ -252,6 +249,7 @@ class ComposioClient(
                 .build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@use false
+                handleSessionError(response.code)
                 val body = response.body?.string() ?: return@use false
                 val json = JSONObject(body)
                 val toolkits = json.optJSONArray("items") ?: json.optJSONArray("toolkits") ?: json.optJSONArray("data")
@@ -286,6 +284,7 @@ class ComposioClient(
                 .build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@use emptyMap<String, List<String>>()
+                handleSessionError(response.code)
                 val body = response.body?.string() ?: return@use emptyMap<String, List<String>>()
                 val json = JSONObject(body)
                 val toolkits = json.optJSONArray("items") ?: json.optJSONArray("toolkits") ?: json.optJSONArray("data")
@@ -531,6 +530,7 @@ class ComposioClient(
             .use { response ->
                 if (!response.isSuccessful) {
                     val errBody = response.body?.string() ?: ""
+                    handleSessionError(response.code)
                     when (response.code) {
                         401 -> {
                             // The token is dead on Composio's server. Actually DELETE
@@ -546,6 +546,7 @@ class ComposioClient(
                         }
                         403 -> error("Permission denied. Reconnect the service and try again.")
                         429 -> error("Rate limited (429). Please wait a moment and try again.")
+                        handleSessionError(response.code)
                         in 500..599 -> error("Composio server error (${response.code}). Please try again shortly.")
                         else -> {
                             try {
