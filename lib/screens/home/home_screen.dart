@@ -185,7 +185,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             height: 34,
             decoration: BoxDecoration(
               color: AppColors.glass,
-              borderRadius: BorderRadius.circular(9),
+              borderRadius: BorderRadius.circular(17),
               border: Border.all(color: AppColors.glassBorder, width: 0.5),
             ),
             clipBehavior: Clip.antiAlias,

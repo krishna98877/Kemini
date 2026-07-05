@@ -288,7 +288,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         children: [
           // Brand logo
           ClipRRect(
-            borderRadius: BorderRadius.circular(7),
+            borderRadius: BorderRadius.circular(14),
             child: Image.asset(_logoPath, width: 26, height: 26,
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => const Icon(
@@ -328,7 +328,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
               color: const Color(0x0DFFFFFF),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(color: const Color(0x1AFFFFFF), width: 0.5),
             ),
             child: const Text('Clear',
@@ -356,7 +356,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             width: 32, height: 32,
             decoration: BoxDecoration(
               color: _danger.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(color: _danger.withOpacity(0.2)),
             ),
             child: const Icon(Icons.picture_as_pdf, color: _danger, size: 15),
@@ -377,7 +377,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             child: Container(
               width: 26, height: 26,
               decoration: BoxDecoration(
-                color: const Color(0x0DFFFFFF), borderRadius: BorderRadius.circular(7),
+                color: const Color(0x0DFFFFFF), borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: const Color(0x1AFFFFFF), width: 0.5),
               ),
               child: const Icon(Icons.close, color: _textMuted, size: 13),
@@ -418,7 +418,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             border: Border.all(color: const Color(0x1AFFFFFF), width: 0.5),
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(13),
+            borderRadius: BorderRadius.circular(14),
             child: Image.asset(_logoPath, fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) =>
                     const Icon(Icons.auto_awesome, color: _accent, size: 26)),
@@ -496,12 +496,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   // Avatar — logo image for bot, person icon for user ────────────────────────
   Widget _botAvatar() => ClipRRect(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(14),
         child: Container(
           width: 28, height: 28,
           decoration: BoxDecoration(
             color: const Color(0x0DFFFFFF),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(14),
             border: Border.all(color: const Color(0x1AFFFFFF), width: 0.5),
           ),
           child: Image.asset(_logoPath, width: 28, height: 28,
@@ -515,7 +515,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         width: 28, height: 28,
         decoration: BoxDecoration(
           color: const Color(0x0DFFFFFF),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(color: const Color(0x1AFFFFFF), width: 0.5),
         ),
         child: const Icon(Icons.person_outline, color: _textMuted, size: 14),
@@ -607,7 +607,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             width: 36, height: 36,
             decoration: BoxDecoration(color: _accentDim, borderRadius: BorderRadius.circular(8)),
             child: _mimeType?.startsWith('image/') == true
-                ? ClipRRect(borderRadius: BorderRadius.circular(8),
+                ? ClipRRect(borderRadius: BorderRadius.circular(14),
                     child: Image.file(_selectedFile!, fit: BoxFit.cover))
                 : const Icon(Icons.insert_drive_file, color: _accent, size: 17),
           ),

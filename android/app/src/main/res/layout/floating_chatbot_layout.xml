@@ -22,20 +22,13 @@
         android:gravity="center_vertical"
         android:showDividers="none">
 
-        <!-- Logo -->
-        <FrameLayout
-            android:layout_width="30dp"
-            android:layout_height="30dp"
-            android:background="@drawable/glass_icon_bg">
-
-            <ImageView
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:src="@drawable/new_logo"
-                android:scaleType="centerInside"
-                android:padding="3dp"
-                android:contentDescription="Stremini Logo" />
-        </FrameLayout>
+        <!-- Logo (user's circular logo) -->
+        <ImageView
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:src="@drawable/stremini_logo_bubble"
+            android:scaleType="centerCrop"
+            android:contentDescription="Stremini Logo" />
 
         <!-- Title -->
         <TextView

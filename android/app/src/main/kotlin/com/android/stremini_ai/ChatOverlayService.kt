@@ -616,7 +616,18 @@ class ChatOverlayService : Service(), View.OnTouchListener {
             refreshServiceConnectionStates()
         }
 
+        // Smooth fade-in + scale-up animation
+        connectorsView?.alpha = 0f
+        connectorsView?.scaleX = 0.95f
+        connectorsView?.scaleY = 0.95f
         try { wm.addView(connectorsView, lp) } catch (_: Exception) {}
+        connectorsView?.animate()
+            ?.alpha(1f)
+            ?.scaleX(1f)
+            ?.scaleY(1f)
+            ?.setDuration(250)
+            ?.setInterpolator(DecelerateInterpolator())
+            ?.start()
 
         isConnectorsActive = false
         updateConnectorsToggleIcon()
@@ -839,10 +850,19 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         if (!isConnectorsVisible) return
         isConnectorsVisible = false
         isConnectorsActive = false
-        try { windowManager.removeView(connectorsView) } catch (_: Exception) {}
-        connectorsView = null
-        // Update toggle icon in the chat input bar (exists independently of connectors panel)
-        updateChatConnectorsToggleIcon()
+        // Smooth fade-out + scale-down animation
+        connectorsView?.animate()
+            ?.alpha(0f)
+            ?.scaleX(0.95f)
+            ?.scaleY(0.95f)
+            ?.setDuration(200)
+            ?.setInterpolator(AccelerateInterpolator())
+            ?.withEndAction {
+                try { windowManager.removeView(connectorsView) } catch (_: Exception) {}
+                connectorsView = null
+                updateChatConnectorsToggleIcon()
+            }
+            ?.start()
     }
 
     private fun updateConnectorsToggleIcon() {
@@ -894,7 +914,20 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         floatingChatParams?.y = dpToPx(100f)
         floatingChatView?.setLayerType(View.LAYER_TYPE_HARDWARE, null)
         setupFloatingChatListeners()
+
+        // Smooth fade-in + scale-up animation
+        floatingChatView?.alpha = 0f
+        floatingChatView?.scaleX = 0.92f
+        floatingChatView?.scaleY = 0.92f
         windowManager.addView(floatingChatView, floatingChatParams)
+        floatingChatView?.animate()
+            ?.alpha(1f)
+            ?.scaleX(1f)
+            ?.scaleY(1f)
+            ?.setDuration(250)
+            ?.setInterpolator(DecelerateInterpolator())
+            ?.start()
+
         isChatbotVisible = true
         addMessageToChatbot("Hello! I'm Stremini AI. How can I help?", isUser = false)
     }
@@ -1095,10 +1128,20 @@ class ChatOverlayService : Service(), View.OnTouchListener {
     private fun hideFloatingChatbot() {
         if (!isChatbotVisible) return
         stopChatVoiceInput()
-        try { windowManager.removeView(floatingChatView) } catch (_: Exception) {}
-        floatingChatView = null
-        floatingChatParams = null
-        isChatbotVisible = false
+        // Smooth fade-out + scale-down animation
+        floatingChatView?.animate()
+            ?.alpha(0f)
+            ?.scaleX(0.92f)
+            ?.scaleY(0.92f)
+            ?.setDuration(200)
+            ?.setInterpolator(AccelerateInterpolator())
+            ?.withEndAction {
+                try { windowManager.removeView(floatingChatView) } catch (_: Exception) {}
+                floatingChatView = null
+                floatingChatParams = null
+                isChatbotVisible = false
+            }
+            ?.start()
     }
 
     // ── Feature handlers

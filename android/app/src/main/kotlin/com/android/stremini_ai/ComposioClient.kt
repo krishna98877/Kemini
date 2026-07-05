@@ -185,7 +185,7 @@ class ComposioClient(
             .post(body)
             .build()
 
-        val client = secureHttpClient(10, 15, "composio")
+        val client = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
         client.newCall(request).execute().use { response ->
             val json = JSONObject(response.body?.string() ?: "{}")
             val sid = json.optString("id").ifBlank {
@@ -217,7 +217,7 @@ class ComposioClient(
             val sessionId = getOrCreateSession()
             if (sessionId.isBlank()) return@withContext false
             val apiKey = getDeveloperApiKey()
-            val client = secureHttpClient(10, 15, "composio")
+            val client = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
             val request = Request.Builder()
                 .url("$COMPOSIO_API_BASE/sessions/$sessionId/toolkits")
                 .addHeader("x-api-key", apiKey)
@@ -251,7 +251,7 @@ class ComposioClient(
             val sessionId = getOrCreateSession()
             if (sessionId.isBlank()) return@withContext emptyMap<String, List<String>>()
             val apiKey = getDeveloperApiKey()
-            val client = secureHttpClient(10, 15, "composio")
+            val client = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
             val request = Request.Builder()
                 .url("$COMPOSIO_API_BASE/sessions/$sessionId/toolkits")
                 .addHeader("x-api-key", apiKey)
@@ -299,7 +299,7 @@ class ComposioClient(
                 .post(body)
                 .build()
 
-            val client = secureHttpClient(useCase = "composio")
+            val client = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
                     val json = JSONObject(response.body?.string() ?: "{}")
@@ -357,7 +357,7 @@ class ComposioClient(
                     .post(body)
                     .build()
 
-                val client = secureHttpClient(10, 15, "composio")
+                val client = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
                 client.newCall(request).execute().use { resp ->
                     val respBody = resp.body?.string() ?: "{}"
                     val json = JSONObject(respBody)
