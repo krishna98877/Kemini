@@ -19,7 +19,26 @@ class DocumentContext {
   const DocumentContext({required this.fileName, required this.text});
 }
 
-final documentContextProvider = StateProvider<DocumentContext?>((ref) => null);
+/// Holds the currently loaded document context (file name + extracted text)
+/// so the chat UI can show a chip and the LLM use-case can include it in the
+/// system prompt.
+///
+/// Migrated from `StateProvider` (removed in Riverpod 3.x) to a `Notifier` +
+/// `NotifierProvider` — the recommended 3.x pattern for mutable single-value
+/// state. Mutate via `ref.read(documentContextProvider.notifier).set(...)` /
+/// `.clear()`, read via `ref.watch(documentContextProvider)`.
+class DocumentContextNotifier extends Notifier<DocumentContext?> {
+  @override
+  DocumentContext? build() => null;
+
+  void set(DocumentContext? ctx) => state = ctx;
+  void clear() => state = null;
+}
+
+final documentContextProvider =
+    NotifierProvider<DocumentContextNotifier, DocumentContext?>(
+  DocumentContextNotifier.new,
+);
 
 /// Groq API key.
 ///
@@ -246,7 +265,7 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
   }
 
   void loadDocument(DocumentContext doc) {
-    ref.read(documentContextProvider.notifier).state = doc;
+    ref.read(documentContextProvider.notifier).set(doc);
     final banner = Message(
       id: 'doc_${DateTime.now().millisecondsSinceEpoch}',
       text: 'Document loaded: ${doc.fileName}\nAsk anything about it. Tap x in the banner to clear.',
@@ -263,7 +282,7 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
   }
 
   void clearDocument() {
-    ref.read(documentContextProvider.notifier).state = null;
+    ref.read(documentContextProvider.notifier).clear();
     final List<Message> updated = [
       ...(state.value ?? <Message>[]),
       Message(
@@ -297,7 +316,7 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
   }
 
   Future<void> clearChat() async {
-    ref.read(documentContextProvider.notifier).state = null;
+    ref.read(documentContextProvider.notifier).clear();
     final settings = ref.read(appSettingsProvider);
     final List<Message> fresh = settings.saveChatHistory ? (state.value ?? [_greeting()]) : [_greeting()];
     state = AsyncValue.data(fresh);
