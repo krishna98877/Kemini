@@ -241,10 +241,11 @@ class ComposioAuthActivity : AppCompatActivity() {
      * - `connect.composio.dev/` followed by a path containing "success"
      *
      * NOTE: the literal glob pattern is intentionally not written here
-     * because Kotlin's KDoc parser treats `/*` as the start of a nested
-     * block comment, which is forbidden and produces misleading
-     * "Missing '}'" / "Unclosed comment" errors that cascade across
-     * the rest of the file (and into other files in the same module).
+     * because Kotlin's KDoc parser treats the slash-star sequence as
+     * the start of a nested block comment, which is forbidden and
+     * produces misleading "Missing brace" / "Unclosed comment" errors
+     * that cascade across the rest of the file (and into other files
+     * in the same module).
      */
     private fun handleUrlRedirect(url: String): Boolean {
         val uri = Uri.parse(url)
