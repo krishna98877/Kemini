@@ -173,7 +173,8 @@ class AppSettingsNotifier extends Notifier<AppSettings> {
               ))
           .toList();
       return decoded;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('loadChatHistory failed: $e');
       return const [];
     }
   }

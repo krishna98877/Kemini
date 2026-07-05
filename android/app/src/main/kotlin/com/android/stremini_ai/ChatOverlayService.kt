@@ -843,7 +843,9 @@ class ChatOverlayService : Service(), View.OnTouchListener {
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 updateComposioStatusText()
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.e("ChatOverlayService", "refreshServiceConnectionStates failed", e)
+        }
     }
 
     private fun hideConnectorsPanel() {
@@ -1238,19 +1240,22 @@ class ChatOverlayService : Service(), View.OnTouchListener {
 
     // ── Notification
     private fun buildNotification(): android.app.Notification {
-        val intent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
-        val pendingIntent = PendingIntent.getActivity(
-            this, 0, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val pendingIntent = launchIntent?.let {
+            PendingIntent.getActivity(
+                this, 0, it,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("Stremini AI")
             .setContentText("Bubble active — tap to open app")
-            .setContentIntent(pendingIntent)
+        if (pendingIntent != null) builder.setContentIntent(pendingIntent)
+        return builder
             .setOngoing(true)
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)

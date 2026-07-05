@@ -124,6 +124,11 @@ class ComposioAuthActivity : AppCompatActivity() {
                 javaScriptEnabled = true
                 domStorageEnabled = true
                 setSupportZoom(false)
+                // Security: prevent file:// access
+                allowFileAccess = false
+                allowContentAccess = false
+                // Safe browsing (API 26+)
+                safeBrowsingEnabled = true
             }
         }
         root.addView(webView)

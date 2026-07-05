@@ -116,7 +116,8 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
           msg.type == MessageType.typing ||
           msg.type == MessageType.documentBanner ||
           msg.text.startsWith('Error:') ||
-          msg.text.startsWith('Warning:')) {
+          msg.text.startsWith('Warning:') ||
+          msg.text.startsWith('Working on it')) {
         continue;
       }
       history.add({
@@ -239,7 +240,7 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
       final List<Message> updated = [
         ...(state.value ?? <Message>[]),
         Message(
-          id: DateTime.now().toString(),
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
           text: 'Sorry, something went wrong. Please try again.',
           type: MessageType.bot,
           timestamp: DateTime.now(),
@@ -305,9 +306,10 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
   Future<void> clearChat() async {
     ref.read(documentContextProvider.notifier).clear();
     final settings = ref.read(appSettingsProvider);
-    final List<Message> fresh = settings.saveChatHistory ? (state.value ?? [_greeting()]) : [_greeting()];
+    final List<Message> fresh = [_greeting()];
     state = AsyncValue.data(fresh);
-    if (!settings.saveChatHistory) {
+    // Always clear persisted history — the user tapped "Clear"
+    if (settings.saveChatHistory) {
       await ref.read(appSettingsProvider.notifier).clearChatHistory();
     }
   }

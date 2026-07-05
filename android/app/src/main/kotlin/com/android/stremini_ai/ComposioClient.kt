@@ -11,6 +11,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -73,6 +75,7 @@ class ComposioClient(
     // work that leaked across Activity recreations.
     private val workScope: CoroutineScope =
         externalScope ?: CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val sessionMutex = Mutex()
 
     companion object {
         private const val TAG = "ComposioClient"
@@ -163,8 +166,8 @@ class ComposioClient(
     //   1. Create a session: POST /api/v1/sessions {user_id}
     //   2. Generate Connect Link: POST /api/v1/sessions/{id}/authorize {toolkit?}
     //   3. Open the redirect_url in a WebView
-    //   4. List toolkits: GET /api/v1/sessions/{id}/toolkits
-    //   5. Execute tools: POST /api/v1/sessions/{id}/execute {tool_slug, params}
+    //   4. List toolkits: GET /api/v3.1/sessions/{id}/toolkits
+    //   5. Execute tools: POST /api/v3.1/sessions/{id}/execute {tool_slug, params}
 
     /**
      * Get or create a Composio session for this device.
@@ -173,34 +176,42 @@ class ComposioClient(
      * cleared and recreated on the next call.
      */
     private suspend fun getOrCreateSession(): String = withContext(Dispatchers.IO) {
+        // Fast path: return cached session without acquiring the lock
         val cached = prefs.getString("composio_session_id")
         if (!cached.isNullOrBlank()) return@withContext cached
 
-        val apiKey = getDeveloperApiKey()
-        val userId = getStableUserId()
-        val body = JSONObject().apply { put("user_id", userId) }
-            .toString().toRequestBody("application/json".toMediaType())
+        // Slow path: acquire mutex to prevent concurrent session creation
+        sessionMutex.withLock {
+            // Double-check: another caller may have created the session while we waited
+            val cachedAfterLock = prefs.getString("composio_session_id")
+            if (!cachedAfterLock.isNullOrBlank()) return@withLock cachedAfterLock
 
-        val request = Request.Builder()
-            .url("$COMPOSIO_API_BASE/sessions")
-            .addHeader("x-api-key", apiKey)
-            .addHeader("Content-Type", "application/json")
-            .post(body)
-            .build()
+            val apiKey = getDeveloperApiKey()
+            val userId = getStableUserId()
+            val body = JSONObject().apply { put("user_id", userId) }
+                .toString().toRequestBody("application/json".toMediaType())
 
-        val client = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
-        client.newCall(request).execute().use { response ->
-            val respBody = response.body?.string() ?: "{}"
-            val json = JSONObject(respBody)
-            val sid = json.optString("id").ifBlank {
-                json.optJSONObject("data")?.optString("id") ?: ""
+            val request = Request.Builder()
+                .url("$COMPOSIO_API_BASE/sessions")
+                .addHeader("x-api-key", apiKey)
+                .addHeader("Content-Type", "application/json")
+                .post(body)
+                .build()
+
+            val client = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
+            client.newCall(request).execute().use { response ->
+                val respBody = response.body?.string() ?: "{}"
+                val json = JSONObject(respBody)
+                val sid = json.optString("id").ifBlank {
+                    json.optJSONObject("data")?.optString("id") ?: ""
+                }
+                if (sid.isNotBlank()) {
+                    prefs.putString("composio_session_id", sid)
+                } else {
+                    Log.e(TAG, "Session creation failed: HTTP ${response.code} body=$respBody")
+                }
+                sid
             }
-            if (sid.isNotBlank()) {
-                prefs.putString("composio_session_id", sid)
-            } else {
-                Log.e(TAG, "Session creation failed: HTTP ${response.code} body=$respBody")
-            }
-            sid
         }
     }
 
@@ -507,8 +518,7 @@ class ComposioClient(
         connectedAccountId: String,
         serviceId: String?
     ): String {
-        val userToken = userPrefs.getString("composio_token")
-        val apiKey = if (!userToken.isNullOrBlank()) userToken else getDeveloperApiKey()
+        val apiKey = getDeveloperApiKey()
 
         val body = JSONObject().apply {
             put("tool_slug", actionId)
@@ -516,10 +526,10 @@ class ComposioClient(
             if (connectedAccountId.isNotBlank()) put("connected_account_id", connectedAccountId)
         }.toString().toRequestBody("application/json".toMediaType())
 
+        val sid = getOrCreateSession()
         val request = Request.Builder()
-            .url("$COMPOSIO_API_BASE/sessions/${getOrCreateSession()}/execute")
-            .addHeader(if (!userToken.isNullOrBlank()) "Authorization" else "x-api-key", 
-                       if (!userToken.isNullOrBlank()) "Bearer $apiKey" else apiKey)
+            .url("$COMPOSIO_API_BASE/sessions/$sid/execute")
+            .addHeader("x-api-key", apiKey)
             .addHeader("Content-Type", "application/json")
             .post(body)
             .build()
@@ -577,18 +587,8 @@ class ComposioClient(
     // the UI and next automation attempt reflect the real state without
     // waiting for the user to manually disconnect.
 
-    /** Remove a specific account from the local connected-services cache. */
+    /** Notify the Flutter side that a service has been disconnected. */
     fun disconnectServiceLocally(serviceId: String, accountId: String) {
-        val raw = prefs.getString("connected_services_${serviceId}") ?: "[]"
-        runCatching {
-            val arr = org.json.JSONArray(raw)
-            val filtered = org.json.JSONArray()
-            for (i in 0 until arr.length()) {
-                val id = arr.optString(i, "")
-                if (id != accountId && id.isNotBlank()) filtered.put(id)
-            }
-            prefs.putString("connected_services_${serviceId}", filtered.toString())
-        }
         // Notify Flutter side so it can update _serviceStatus immediately.
         // sendBroadcast is non-blocking and safe to call from any thread, so we
         // dispatch on workScope without requiring an external scope to be set.

@@ -62,7 +62,7 @@ class ComposioServiceManager {
   // The Dart side delegates all Composio operations via MethodChannel.
 
   StreamSubscription? _eventSub;
-  bool _isConfigured = true; // Always true — key is embedded natively
+  bool _isConfigured = true; // Key is embedded natively; always true for managed auth
 
   /// Connection status per service: serviceId → bool
   final Map<String, bool> _serviceStatus = {};
@@ -85,28 +85,31 @@ class ComposioServiceManager {
       await refreshServiceStatuses();
     }
 
-    _eventSub = _eventChannel.receiveBroadcastStream().listen((event) {
-      if (event is Map) {
-        final eventType = event['event'] as String?;
-        if (eventType == 'connection_success') {
-          // A service was just connected via WebView auth
-          final serviceId = event['serviceId'] as String?;
-          if (serviceId != null) {
-            _serviceStatus[serviceId] = true;
-            debugPrint('Composio: $serviceId connected via auth');
-          }
-        } else if (eventType == 'connection_lost') {
-          // A 401 triggered a local disconnect on the native side.
-          // Update the Dart cache so the UI and next automation check
-          // immediately reflect reality without waiting for a restart.
-          final serviceId = event['serviceId'] as String?;
-          if (serviceId != null) {
-            _serviceStatus[serviceId] = false;
-            debugPrint('Composio: $serviceId disconnected (session expired)');
+    _eventSub = _eventChannel.receiveBroadcastStream().listen(
+      (event) {
+        if (event is Map) {
+          final eventType = event['event'] as String?;
+          if (eventType == 'connection_success') {
+            // A service was just connected via WebView auth
+            final serviceId = event['serviceId'] as String?;
+            if (serviceId != null) {
+              _serviceStatus[serviceId] = true;
+              debugPrint('Composio: $serviceId connected via auth');
+            }
+          } else if (eventType == 'connection_lost') {
+            // A 401 triggered a local disconnect on the native side.
+            // Update the Dart cache so the UI and next automation check
+            // immediately reflect reality without waiting for a restart.
+            final serviceId = event['serviceId'] as String?;
+            if (serviceId != null) {
+              _serviceStatus[serviceId] = false;
+              debugPrint('Composio: $serviceId disconnected (session expired)');
+            }
           }
         }
-      }
-    });
+      },
+      onError: (e) => debugPrint('Composio event stream error: $e'),
+    );
   }
 
   void dispose() {
@@ -137,7 +140,8 @@ class ComposioServiceManager {
     if (!Platform.isAndroid) return;
     try {
       await _channel.invokeMethod('disconnectComposioService', {'serviceId': serviceId});
-      _serviceStatus[serviceId] = false;
+      // Don't optimistically update — the EventChannel will send connection_lost
+      // when the server confirms the disconnect.
     } catch (e) {
       debugPrint('Composio: error disconnecting $serviceId — $e');
     }
@@ -207,7 +211,7 @@ class ComposioServiceManager {
 
       return 'Automation is only supported on Android.';
     } catch (e) {
-      return 'Automation error. Please check your connection and try again.';
+      return 'Automation error: ${e is PlatformException ? (e.message ?? e.code) : e.toString()}';
     }
   }
 

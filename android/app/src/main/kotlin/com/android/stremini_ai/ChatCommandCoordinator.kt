@@ -128,7 +128,7 @@ Reply with only YES or NO."""
                 .trim()
                 .uppercase()
                 .startsWith("YES")
-        }.getOrDefault(true) // If LLM call fails, allow automation (fail-open)
+        }.getOrDefault(false) // If LLM call fails, allow automation (fail-open)
     }
 
     fun clearHistory() {
