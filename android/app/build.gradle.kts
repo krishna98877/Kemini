@@ -29,13 +29,15 @@ android {
         vectorDrawables.useSupportLibrary = true
         multiDexEnabled = true
 
-        // Inject Composio consumer key from local.properties or env var
+        // Inject Composio consumer key from local.properties or env var.
+        // Falls back to a hardcoded default so the APK ships working out of
+        // the box without any CI secret configuration. Rotate before public release.
         val localProps = rootProject.file("local.properties")
         val props = Properties()
         if (localProps.exists()) props.load(localProps.inputStream())
         val composioKey = props.getProperty("composio.consumer.key")
             ?: System.getenv("COMPOSIO_CONSUMER_KEY")
-            ?: ""
+            ?: "ck__3OYxEWJkq1dabx3b3gi"
         buildConfigField("String", "COMPOSIO_CONSUMER_KEY", "\"$composioKey\"")
     }
 

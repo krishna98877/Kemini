@@ -43,14 +43,12 @@ jobs:
         run: flutter pub get
 
       - name: Build APK
+        # Both API keys (Groq + Composio) have hardcoded defaults in the source
+        # so the APK ships working out of the box. CI secrets override them if set.
         env:
-          # Composio key — wired through android/local.properties (read by build.gradle.kts).
-          # Repo admin must add this as a GitHub Actions secret.
           COMPOSIO_CONSUMER_KEY: ${{ secrets.COMPOSIO_CONSUMER_KEY }}
-          # Groq API key — injected into the Dart bundle via --dart-define.
-          # Repo admin must add this as a GitHub Actions secret.
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        run: flutter build apk --release --dart-define=GROQ_API_KEY=$GROQ_API_KEY
+        run: flutter build apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
