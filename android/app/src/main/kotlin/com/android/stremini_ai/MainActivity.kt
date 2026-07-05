@@ -189,11 +189,23 @@ class MainActivity : FlutterActivity() {
     private val _disconnectReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val serviceId = intent?.getStringExtra("serviceId") ?: return
-            _composioEventSink?.success(mapOf(
-                "event" to "connection_lost",
-                "serviceId" to serviceId,
-                "status" to "disconnected"
-            ))
+            val event = intent.getStringExtra("event") ?: "connection_lost"
+            when (event) {
+                "connection_success" -> {
+                    _composioEventSink?.success(mapOf(
+                        "event" to "connection_success",
+                        "serviceId" to serviceId,
+                        "status" to "connected"
+                    ))
+                }
+                else -> {
+                    _composioEventSink?.success(mapOf(
+                        "event" to "connection_lost",
+                        "serviceId" to serviceId,
+                        "status" to "disconnected"
+                    ))
+                }
+            }
             refreshConnectedServicesCache()
         }
     }

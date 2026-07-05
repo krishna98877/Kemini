@@ -552,15 +552,15 @@ class ComposioClient(
         val apiKey = getDeveloperApiKey()
 
         val body = JSONObject().apply {
+            put("action_id", actionId)
             put("arguments", JSONObject(params))
             val userId = getStableUserId()
             put("entity_id", userId)
-            // Don't pass connected_account_id — let Composio auto-resolve from entity_id + toolkit
+            if (connectedAccountId.isNotBlank()) put("connected_account_id", connectedAccountId)
         }.toString().toRequestBody("application/json".toMediaType())
 
-        val sid = getOrCreateSession()
         val request = Request.Builder()
-            .url("$COMPOSIO_API_BASE/sessions/$sid/execute")
+            .url("$COMPOSIO_TOOLS_API_BASE/tools/execute/$actionId")
             .addHeader("x-api-key", apiKey)
             .addHeader("Content-Type", "application/json")
             .post(body)
@@ -605,9 +605,14 @@ class ComposioClient(
                     ?: json.optJSONObject("data")
                     ?: json
                 // Check if the action was actually successful
-                val successful = resultData.optBoolean("successful", true)
+                val successful = resultData.optBoolean("successful", false)
+                    && resultData.optString("status") != "failed"
+                    && resultData.optString("status") != "FAILURE"
+                    && resultData.optString("error").isBlank()
                 if (!successful) {
-                    val errorMsg = resultData.optString("error", "Action failed on Composio's side")
+                    val errorMsg = resultData.optString("error")
+                        .ifBlank { resultData.optString("message") }
+                        .ifBlank { "Action failed on Composio's side" }
                     error("Automation failed: $errorMsg")
                 }
                 // Extract a clean success message
