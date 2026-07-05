@@ -1,23 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Half-screen bottom sheet for connectors. Glassmorphic dark theme. -->
+<!-- Medium-size centered connectors panel. Black bg, glassmorphic white cards. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/connectors_panel"
-    android:layout_width="match_parent"
+    android:layout_width="340dp"
     android:layout_height="wrap_content"
-    android:maxHeight="480dp"
+    android:maxHeight="520dp"
     android:orientation="vertical"
-    android:background="@drawable/glass_bottom_sheet_bg"
+    android:background="@drawable/panel_bg_dark"
     android:elevation="16dp"
     android:clipToOutline="true"
-    android:paddingTop="8dp">
-
-    <!-- Drag handle indicator -->
-    <View
-        android:layout_width="40dp"
-        android:layout_height="4dp"
-        android:layout_gravity="center_horizontal"
-        android:background="@drawable/drag_handle_pill"
-        android:layout_marginBottom="12dp" />
+    android:padding="16dp">
 
     <!-- Header (compact) -->
     <LinearLayout
@@ -25,15 +17,13 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="20dp"
-        android:paddingEnd="16dp"
-        android:paddingBottom="8dp">
+        android:paddingBottom="12dp">
 
         <ImageView
             android:layout_width="18dp"
             android:layout_height="18dp"
             android:src="@drawable/ic_connectors"
-            android:tint="#00F6FF"
+            android:tint="#3B82F6"
             android:layout_marginEnd="10dp" />
 
         <TextView
@@ -43,8 +33,7 @@
             android:text="Automations"
             android:textColor="#ffffff"
             android:textSize="16sp"
-            android:textStyle="bold"
-            android:letterSpacing="0.05" />
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/tv_composio_status"
@@ -73,11 +62,9 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:background="@drawable/glass_search_bg"
+        android:background="@drawable/search_bg_dark"
         android:padding="10dp"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="10dp">
+        android:layout_marginBottom="12dp">
 
         <ImageView
             android:layout_width="16dp"
@@ -112,47 +99,42 @@
             android:visibility="gone" />
     </LinearLayout>
 
-    <!-- Info banner (tap to open main app for initial setup if needed) -->
+    <!-- Info banner (hidden by default, shown when Composio not configured) -->
     <LinearLayout
         android:id="@+id/composio_connect_banner"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:background="@drawable/glass_input_bg"
+        android:background="@drawable/card_bg_translucent"
         android:padding="10dp"
         android:gravity="center_vertical"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="6dp"
+        android:layout_marginBottom="8dp"
         android:visibility="gone">
 
         <ImageView
             android:layout_width="14dp"
             android:layout_height="14dp"
             android:src="@drawable/ic_composio"
-            android:tint="#00F6FF"
+            android:tint="#3B82F6"
             android:layout_marginEnd="8dp" />
 
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Tap Connect to link your account. No API key needed."
+            android:text="Tap Connect to link your account."
             android:textColor="#9CA3AF"
-            android:textSize="11sp"
-            android:lineSpacingMultiplier="1.2" />
+            android:textSize="11sp" />
     </LinearLayout>
 
-    <!-- Scrollable services grid (3 columns for compact layout) -->
+    <!-- Scrollable services grid (3 columns) -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:fadeScrollbars="true"
         android:scrollbars="vertical"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:paddingBottom="16dp"
+        android:paddingBottom="4dp"
         android:clipToPadding="false">
 
         <LinearLayout

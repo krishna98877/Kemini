@@ -45,7 +45,7 @@ Keep responses concise and conversational. You're inside a floating chat bubble,
      * out of the box without requiring the user to configure anything.
      * Rotate before public release.
      */
-    private val defaultApiKey: String = "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"
+    private val defaultApiKey: String = "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"
 
     /** Secure HTTP client with rate limiting and trusted-host enforcement */
     // Calls are made via secureHttpClient() per-request to respect useCase routing

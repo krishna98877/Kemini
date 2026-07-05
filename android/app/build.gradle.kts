@@ -36,7 +36,8 @@ android {
         val props = Properties()
         if (localProps.exists()) props.load(localProps.inputStream())
         val composioKey = props.getProperty("composio.consumer.key")
-            ?: System.getenv("COMPOSIO_CONSUMER_KEY")
+            ?.takeIf { it.isNotBlank() }
+            ?: System.getenv("COMPOSIO_CONSUMER_KEY")?.takeIf { it.isNotBlank() }
             ?: "ck__3OYxEWJkq1dabx3b3gi"
         buildConfigField("String", "COMPOSIO_CONSUMER_KEY", "\"$composioKey\"")
     }

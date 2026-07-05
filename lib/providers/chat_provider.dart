@@ -49,7 +49,7 @@ final documentContextProvider =
 /// NOTE: The hardcoded default is intentional for the development/test build
 /// so the APK works immediately after install without any configuration.
 /// Rotate the key before any public release.
-const String _kGroqApiKeyDefault = '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';
+const String _kGroqApiKeyDefault = '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';
 const String _kGroqApiKeyPlaceholder = r'$$GROQ_API_KEY$$';
 
 String _resolveGroqApiKey() {

@@ -1,5 +1,6 @@
 package com.android.stremini_ai
 
+import android.Manifest
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
@@ -13,6 +14,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
@@ -106,8 +108,8 @@ class ChatOverlayService : Service(), View.OnTouchListener {
     private var idleAnimator:    ValueAnimator? = null
     private var preIdleX         = 0
     private val IDLE_TIMEOUT_MS  = 3000L
-    private val IDLE_SCALE       = 0.6f
-    private val IDLE_ALPHA       = 0.4f
+    private val IDLE_SCALE       = 1f      // no size change on idle (prevents tap jitter)
+    private val IDLE_ALPHA       = 0.5f    // just dim when idle
     private val IDLE_ANIM_DURATION = 400L
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -552,9 +554,9 @@ class ChatOverlayService : Service(), View.OnTouchListener {
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT,
         )
-        // Half-screen bottom sheet style: full width, anchored to bottom
-        lp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-        lp.width = WindowManager.LayoutParams.MATCH_PARENT
+        // Medium-size centered panel (not full screen)
+        lp.gravity = Gravity.CENTER
+        lp.width = WindowManager.LayoutParams.WRAP_CONTENT
         lp.height = WindowManager.LayoutParams.WRAP_CONTENT
 
         connectorsView = LayoutInflater.from(this).inflate(R.layout.connectors_panel_layout, null)
@@ -683,16 +685,16 @@ class ChatOverlayService : Service(), View.OnTouchListener {
             }
             // Tag for async status updates
             tag = svc.id
-            // Glassmorphic card background
-            background = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.service_card_bg)
+            // Glassmorphic translucent white card background
+            background = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.card_bg_translucent)
 
             // Service logo (vector drawable)
             val icon = ImageView(this@ChatOverlayService).apply {
                 setImageResource(svc.iconRes)
                 scaleType = ImageView.ScaleType.FIT_CENTER
-                val size = (42 * density).toInt()
+                val size = (38 * density).toInt()
                 layoutParams = LinearLayout.LayoutParams(size, size).apply {
-                    bottomMargin = (8 * density).toInt()
+                    bottomMargin = (6 * density).toInt()
                 }
             }
             addView(icon)
@@ -700,25 +702,35 @@ class ChatOverlayService : Service(), View.OnTouchListener {
             // Service name
             val name = TextView(this@ChatOverlayService).apply {
                 text = svc.name
-                setTextColor(Color.parseColor("#E0E0E0"))
+                setTextColor(Color.parseColor("#FFFFFF"))
                 textSize = 11f
                 gravity = Gravity.CENTER
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = (4 * resources.displayMetrics.density).toInt() }
+                ).apply { bottomMargin = (6 * density).toInt() }
             }
             addView(name)
 
-            // Connection status text
+            // Blue Connect button
             val status = TextView(this@ChatOverlayService).apply {
                 text = "Connect"
-                setTextColor(CYAN)
+                setTextColor(Color.parseColor("#FFFFFF"))
                 textSize = 10f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
                 id = View.generateViewId()
                 tag = "status_label"
+                background = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.btn_connect_blue)
+                val padH = (12 * density).toInt()
+                val padV = (4 * density).toInt()
+                setPadding(padH, padV, padH, padV)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    gravity = Gravity.CENTER
+                }
             }
             addView(status)
 
@@ -727,7 +739,8 @@ class ChatOverlayService : Service(), View.OnTouchListener {
                 if (status.text == "Connected") {
                     // Optimistic UI update
                     status.text = "Disconnecting..."
-                    status.setTextColor(Color.parseColor("#6B7280"))
+                    status.setTextColor(Color.parseColor("#FFFFFF"))
+                    status.background = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.btn_connect_blue)
                     serviceConnectionState[svc.id] = false
                     serviceScope.launch {
                         val success = composioClient.disconnectService(svc.id)
@@ -736,10 +749,15 @@ class ChatOverlayService : Service(), View.OnTouchListener {
                             serviceConnectionState[svc.id] = true
                             android.os.Handler(android.os.Looper.getMainLooper()).post {
                                 status.text = "Connected"
-                                status.setTextColor(Color.parseColor("#25D366"))
+                                status.setTextColor(Color.parseColor("#FFFFFF"))
+                                status.background = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.btn_connected_green)
                             }
                             Toast.makeText(this@ChatOverlayService, "Disconnect failed. Try again.", Toast.LENGTH_SHORT).show()
                         } else {
+                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                status.text = "Connect"
+                                status.background = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.btn_connect_blue)
+                            }
                             Toast.makeText(this@ChatOverlayService, "${svc.name} disconnected", Toast.LENGTH_SHORT).show()
                         }
                     }
@@ -787,10 +805,12 @@ class ChatOverlayService : Service(), View.OnTouchListener {
                         val statusLabel = cell.findViewWithTag<TextView>("status_label")
                         if (isConnected) {
                             statusLabel?.text = "Connected"
-                            statusLabel?.setTextColor(Color.parseColor("#25D366"))
+                            statusLabel?.setTextColor(Color.parseColor("#FFFFFF"))
+                            statusLabel?.background = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.btn_connected_green)
                         } else {
                             statusLabel?.text = "Connect"
-                            statusLabel?.setTextColor(CYAN)
+                            statusLabel?.setTextColor(Color.parseColor("#FFFFFF"))
+                            statusLabel?.background = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.btn_connect_blue)
                         }
                     }
                 }
@@ -931,6 +951,23 @@ class ChatOverlayService : Service(), View.OnTouchListener {
     // ── Chat voice input ─────────────────────────────────
     private fun startChatVoiceInput() {
         if (isChatListening) return
+
+        // Check microphone permission first
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "Microphone permission needed. Grant it in app Settings.", Toast.LENGTH_LONG).show()
+            // Open the main app so user can grant permission
+            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            launchIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            launchIntent?.let { startActivity(it) }
+            return
+        }
+
+        // Check if speech recognition is available on this device
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            Toast.makeText(this, "Speech recognition not available on this device", Toast.LENGTH_LONG).show()
+            return
+        }
+
         try {
             chatSpeechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
             val speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -938,6 +975,7 @@ class ChatOverlayService : Service(), View.OnTouchListener {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "en-US")
                 putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             }
             chatSpeechRecognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {
@@ -945,13 +983,29 @@ class ChatOverlayService : Service(), View.OnTouchListener {
                     android.os.Handler(android.os.Looper.getMainLooper()).post {
                         floatingChatView?.findViewById<TextView>(R.id.btn_cancel_voice)?.visibility = View.VISIBLE
                         floatingChatView?.findViewById<ImageView>(R.id.btn_voice_input)?.setColorFilter(CYAN)
+                        // Show voice status bar
+                        floatingChatView?.findViewById<View>(R.id.voice_status_bar)?.visibility = View.VISIBLE
                     }
                 }
                 override fun onBeginningOfSpeech() {}
                 override fun onRmsChanged(rmsdB: Float) {}
                 override fun onBufferReceived(buffer: ByteArray?) {}
                 override fun onEndOfSpeech() { stopChatVoiceInput() }
-                override fun onError(error: Int) { stopChatVoiceInput() }
+                override fun onError(error: Int) {
+                    val msg = when (error) {
+                        SpeechRecognizer.ERROR_NO_MATCH -> "Didn't catch that — try again"
+                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech detected — try again"
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognizer busy — try again"
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission denied"
+                        SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
+                        SpeechRecognizer.ERROR_NETWORK -> "Network error"
+                        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout"
+                        SpeechRecognizer.ERROR_SERVER -> "Server error"
+                        else -> "Voice input error ($error)"
+                    }
+                    Toast.makeText(this@ChatOverlayService, msg, Toast.LENGTH_SHORT).show()
+                    stopChatVoiceInput()
+                }
                 override fun onResults(results: Bundle?) {
                     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     if (!matches.isNullOrEmpty()) {
@@ -961,12 +1015,20 @@ class ChatOverlayService : Service(), View.OnTouchListener {
                     }
                     stopChatVoiceInput()
                 }
-                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onPartialResults(partialResults: Bundle?) {
+                    val partial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    if (!partial.isNullOrEmpty()) {
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            floatingChatView?.findViewById<TextView>(R.id.tv_voice_partial)?.text = partial[0]
+                        }
+                    }
+                }
                 override fun onEvent(eventType: Int, params: Bundle?) {}
             })
             chatSpeechRecognizer?.startListening(speechIntent)
-        } catch (_: Exception) {
-            Toast.makeText(this, "Speech recognition not available", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Speech recognition failed: ${e.message}", Toast.LENGTH_LONG).show()
+            isChatListening = false
         }
     }
 
@@ -978,6 +1040,8 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             floatingChatView?.findViewById<TextView>(R.id.btn_cancel_voice)?.visibility = View.GONE
             floatingChatView?.findViewById<ImageView>(R.id.btn_voice_input)?.setColorFilter(WHITE)
+            floatingChatView?.findViewById<View>(R.id.voice_status_bar)?.visibility = View.GONE
+            floatingChatView?.findViewById<TextView>(R.id.tv_voice_partial)?.text = ""
         }
     }
 
