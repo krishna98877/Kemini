@@ -891,14 +891,15 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         val chatView = floatingChatView ?: return
         val btn = chatView.findViewById<FrameLayout>(R.id.btn_connectors_toggle) ?: return
         val icon = btn.findViewById<ImageView>(R.id.connectors_toggle_icon)
-        val dot  = btn.findViewById<View>(R.id.connectors_active_dot)
-        val anyConnected = serviceConnectionState.values.any { it }
-        if (anyConnected) {
-            icon?.setColorFilter(CYAN)
-            dot?.visibility = View.VISIBLE
+        val badge = btn.findViewById<TextView>(R.id.connectors_active_dot)
+        val connectedCount = serviceConnectionState.values.count { it }
+        if (connectedCount > 0) {
+            icon?.setColorFilter(Color.parseColor("#3B82F6"))
+            badge?.visibility = View.VISIBLE
+            badge?.text = connectedCount.toString()
         } else {
-            icon?.setColorFilter(BORDER)
-            dot?.visibility = View.GONE
+            icon?.setColorFilter(Color.parseColor("#555555"))
+            badge?.visibility = View.GONE
         }
     }
 

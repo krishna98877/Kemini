@@ -136,21 +136,25 @@
 
             <ImageView
                 android:id="@+id/connectors_toggle_icon"
-                android:layout_width="18dp"
-                android:layout_height="18dp"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
                 android:src="@drawable/ic_connectors"
-                android:tint="#555555"
+                android:tint="#3B82F6"
                 android:layout_gravity="center"
                 android:scaleType="fitCenter" />
 
-            <!-- Active indicator dot -->
-            <View
+            <!-- Active indicator badge (shows count of connected services) -->
+            <TextView
                 android:id="@+id/connectors_active_dot"
-                android:layout_width="8dp"
-                android:layout_height="8dp"
-                android:background="@drawable/connector_active_indicator"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:background="@drawable/circle_bg_blue"
                 android:layout_gravity="bottom|end"
-                android:visibility="gone" />
+                android:visibility="gone"
+                android:textSize="9sp"
+                android:textColor="#FFFFFF"
+                android:gravity="center"
+                android:textStyle="bold" />
         </FrameLayout>
 
         <!-- Voice Input Button -->

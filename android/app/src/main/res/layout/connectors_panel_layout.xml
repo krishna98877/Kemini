@@ -2,7 +2,7 @@
 <!-- Medium-size centered connectors panel. Black bg, glassmorphic white cards. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/connectors_panel"
-    android:layout_width="340dp"
+    android:layout_width="300dp"
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:background="@drawable/panel_bg_dark"

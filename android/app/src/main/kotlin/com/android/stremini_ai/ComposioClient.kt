@@ -301,7 +301,7 @@ class ComposioClient(
                     val slug = acct.optJSONObject("toolkit")?.optString("slug") ?: ""
                     val acctId = acct.optString("id")
                     val status = acct.optString("status")
-                    if (slug.isNotBlank() && status == "ACTIVE" && acctId.isNotBlank()) {
+                    if (slug.isNotBlank() && status != "FAILED" && acctId.isNotBlank()) {
                         result.getOrPut(slug) { mutableListOf() }.add(acctId)
                     }
                 }
@@ -383,15 +383,26 @@ class ComposioClient(
                     val authUrl = json.optString("redirect_url").ifBlank { json.optString("redirectUrl") }
                     if (authUrl.isNotBlank()) {
                         withContext(Dispatchers.Main) {
-                            val intent = Intent(context, ComposioAuthActivity::class.java).apply {
-                                putExtra(ComposioAuthActivity.EXTRA_AUTH_URL, authUrl)
-                                putExtra(ComposioAuthActivity.EXTRA_SERVICE_NAME,
-                                    ALL_SERVICES.find { it.id == serviceId }?.name ?: serviceId)
-                                putExtra(ComposioAuthActivity.EXTRA_SERVICE_ID, serviceId)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            // Use Chrome Custom Tabs — faster, has saved passwords, more reliable
+                            try {
+                                val chromeIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    // Prefer Chrome
+                                    setPackage("com.android.chrome")
+                                }
+                                context.startActivity(chromeIntent)
+                            } catch (e: Exception) {
+                                // Chrome not available — try default browser
+                                try {
+                                    val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(browserIntent)
+                                } catch (e2: Exception) {
+                                    Log.e(TAG, "Cannot open browser", e2)
+                                    Toast.makeText(context, "Cannot open browser. Please install Chrome.", Toast.LENGTH_LONG).show()
+                                }
                             }
-                            try { context.startActivity(intent) }
-                            catch (e: Exception) { Log.e(TAG, "Cannot start ComposioAuthActivity", e); openInCustomTab(authUrl) }
                         }
                     } else {
                         Log.e(TAG, "No auth URL in response: $respBody")
