@@ -63,6 +63,7 @@ data class ServiceDef(
     val iconChar: String,
     val iconRes: Int,
     val authConfigId: String = "",
+    val needsCustomAuth: Boolean = false,
 )
 
 class ComposioClient(
@@ -88,17 +89,20 @@ class ComposioClient(
         const val REDIRECT_URI = "stremini://composio"
 
         val ALL_SERVICES = listOf(
-            ServiceDef("github",       "GitHub",       listOf("github","repo","repository","commit","pull request","issue","branch"),           0xFF6e40c9, "G", R.drawable.logo_github, "ac_YFSxski2H_Uj"),
-            ServiceDef("gmail",        "Gmail",        listOf("gmail","email","mail","send email","inbox","draft"),                               0xFFEA4335, "M", R.drawable.logo_gmail, "ac__21liBysL4x9"),
-            ServiceDef("instagram",    "Instagram",    listOf("instagram","ig","instagram story","instagram reel","instagram dm","instagram post"), 0xFFE4405F, "I", R.drawable.logo_instagram, "ac_V1hFeA4Iy2EF"),
-            ServiceDef("facebook",     "Facebook",     listOf("facebook","fb","facebook post","facebook page","facebook group"),                      0xFF1877F2, "F", R.drawable.logo_facebook, "ac_u1qeC8YT6l90"),
-            ServiceDef("whatsapp",     "WhatsApp",     listOf("whatsapp","wa","whats app","whatsapp message"),                                       0xFF25D366, "W", R.drawable.logo_whatsapp, "ac_412d-2RkonCA"),
-            ServiceDef("googledrive",  "Google Drive", listOf("drive","google drive","upload","drive file","drive folder","share file"),               0xFF0F9D58, "D", R.drawable.logo_googledrive, "ac_0_7ITaqzgnMC"),
-            ServiceDef("discord",      "Discord",      listOf("discord","discord server","discord channel","discord dm","guild"),                      0xFF5865F2, "D", R.drawable.logo_discord, "ac_Jh_gaZbL4nDx"),
-            ServiceDef("linkedin",     "LinkedIn",     listOf("linkedin","linkedin profile","linkedin connection","linkedin job","linkedin post"),      0xFF0A66C2, "L", R.drawable.logo_linkedin, "ac_zVwn7nQv2PQZ"),
-            ServiceDef("reddit",       "Reddit",       listOf("reddit","subreddit","reddit post","upvote","comment","thread"),                        0xFFFF4500, "R", R.drawable.logo_reddit, "ac_BNHdyMo8wNI9"),
-            ServiceDef("googlesheets",  "Google Sheets",listOf("sheet","spreadsheet","google sheets","cell","row","column","table"),                  0xFF0F9D58, "S", R.drawable.logo_googlesheets, "ac_iR7c2eb7ecrA"),
-            ServiceDef("youtube",      "YouTube",      listOf("youtube","youtube video","youtube channel","upload video","youtube comment","subscribe","playlist","youtube shorts"), 0xFFFF0000, "Y", R.drawable.logo_youtube, "ac_CF5aPWE_QIen"),
+            ServiceDef("github",       "GitHub",       listOf("github","repo","repository","commit","pull request","issue","branch"),           0xFF6e40c9, "G", R.drawable.logo_github,       "ac_YFSxski2H_Uj"),
+            ServiceDef("gmail",        "Gmail",        listOf("gmail","email","mail","send email","inbox","draft"),                               0xFFEA4335, "M", R.drawable.logo_gmail,        "ac__21liBysL4x9"),
+            ServiceDef("telegram",     "Telegram",     listOf("telegram","tg","telegram message","telegram chat","telegram channel"),               0xFF0088cc, "T", R.drawable.logo_telegram,     "", needsCustomAuth = true),
+            ServiceDef("twitter",      "Twitter",      listOf("twitter","tweet","x.com","post tweet","timeline","retweet"),                         0xFF1DA1F2, "X", R.drawable.logo_twitter,      "", needsCustomAuth = true),
+            ServiceDef("instagram",    "Instagram",    listOf("instagram","ig","instagram story","instagram reel","instagram dm","instagram post"), 0xFFE4405F, "I", R.drawable.logo_instagram,    "ac_V1hFeA4Iy2EF"),
+            ServiceDef("facebook",     "Facebook",     listOf("facebook","fb","facebook post","facebook page","facebook group"),                      0xFF1877F2, "F", R.drawable.logo_facebook,     "ac_u1qeC8YT6l90"),
+            ServiceDef("whatsapp",     "WhatsApp",     listOf("whatsapp","wa","whats app","whatsapp message"),                                       0xFF25D366, "W", R.drawable.logo_whatsapp,     "ac_412d-2RkonCA"),
+            ServiceDef("googledrive",  "Google Drive", listOf("drive","google drive","upload","drive file","drive folder","share file"),               0xFF0F9D58, "D", R.drawable.logo_googledrive,  "ac_0_7ITaqzgnMC"),
+            ServiceDef("discord",      "Discord",      listOf("discord","discord server","discord channel","discord dm","guild"),                      0xFF5865F2, "D", R.drawable.logo_discord,      "ac_Jh_gaZbL4nDx"),
+            ServiceDef("linkedin",     "LinkedIn",     listOf("linkedin","linkedin profile","linkedin connection","linkedin job","linkedin post"),      0xFF0A66C2, "L", R.drawable.logo_linkedin,     "ac_zVwn7nQv2PQZ"),
+            ServiceDef("reddit",       "Reddit",       listOf("reddit","subreddit","reddit post","upvote","comment","thread"),                        0xFFFF4500, "R", R.drawable.logo_reddit,       "ac_BNHdyMo8wNI9"),
+            ServiceDef("googlesheets", "Google Sheets",listOf("sheet","spreadsheet","google sheets","cell","row","column","table"),                  0xFF0F9D58, "S", R.drawable.logo_googlesheets, "ac_iR7c2eb7ecrA"),
+            ServiceDef("youtube",      "YouTube",      listOf("youtube","youtube video","youtube channel","upload video","youtube comment","subscribe","playlist","youtube shorts"), 0xFFFF0000, "Y", R.drawable.logo_youtube,      "ac_CF5aPWE_QIen"),
+            ServiceDef("tiktok",       "TikTok",       listOf("tiktok","tiktok video","tiktok post","tiktok dm","tiktok comment","tiktok account","duet"),              0xFF000000, "Tk", R.drawable.logo_tiktok,       "", needsCustomAuth = true),
         )
 
         /** Map of common user intents → Composio action IDs */
@@ -122,6 +126,9 @@ class ComposioClient(
             "update_sheet"    to "GOOGLE_SHEETS_UPDATE_SHEET",
             "upload_youtube"  to "YOUTUBE_UPLOAD_A_VIDEO",
             "youtube_comment" to "YOUTUBE_ADD_COMMENT",
+            "send_telegram"   to "TELEGRAM_SEND_MESSAGE",
+            "post_tweet"      to "TWITTER_CREATE_A_TWEET",
+            "tiktok_post"     to "TIKTOK_CREATE_A_VIDEO",
         )
 
         /** Map serviceId → action ID prefix for LLM prompt filtering */
@@ -137,6 +144,9 @@ class ComposioClient(
             "reddit" to "REDDIT",
             "googlesheets" to "GOOGLE_SHEETS",
             "youtube" to "YOUTUBE",
+            "telegram" to "TELEGRAM",
+            "twitter" to "TWITTER",
+            "tiktok" to "TIKTOK",
         )
     }
 
@@ -371,9 +381,72 @@ class ComposioClient(
                 val apiKey = getDeveloperApiKey()
                 val svc = ALL_SERVICES.find { it.id == serviceId }
                 val authConfigId = svc?.authConfigId ?: ""
-                if (authConfigId.isBlank()) {
+                if (authConfigId.isBlank() || svc?.needsCustomAuth == true) {
+                    // For services without managed auth, create a custom auth config
+                    // with the user's own credentials via the connect link flow.
+                    // Composio will prompt the user to enter their credentials.
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "This service does not support managed auth", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "Connecting to ${svc?.name ?: serviceId}...", Toast.LENGTH_SHORT).show()
+                    }
+                    // Try creating a custom auth config
+                    val customBody = JSONObject().apply {
+                        put("name", "${serviceId}_custom")
+                        put("toolkit", JSONObject().put("slug", serviceId))
+                        put("type", "use_custom_auth")
+                    }.toString().toRequestBody("application/json".toMediaType())
+                    val customReq = Request.Builder()
+                        .url("$COMPOSIO_API_BASE/auth_configs")
+                        .addHeader("x-api-key", apiKey)
+                        .addHeader("Content-Type", "application/json")
+                        .post(customBody)
+                        .build()
+                    val customClient = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
+                    try {
+                        customClient.newCall(customReq).execute().use { customResp ->
+                            val customJson = JSONObject(customResp.body?.string() ?: "{}")
+                            val newAuthConfigId = customJson.optJSONObject("auth_config")?.optString("id") ?: ""
+                            if (newAuthConfigId.isNotBlank()) {
+                                // Use this new auth config to create the connect link
+                                val linkBody = JSONObject().apply {
+                                    put("auth_config_id", newAuthConfigId)
+                                    put("user_id", getStableUserId())
+                                }.toString().toRequestBody("application/json".toMediaType())
+                                val linkReq = Request.Builder()
+                                    .url("$COMPOSIO_API_BASE/connected_accounts/link")
+                                    .addHeader("x-api-key", apiKey)
+                                    .addHeader("Content-Type", "application/json")
+                                    .post(linkBody)
+                                    .build()
+                                customClient.newCall(linkReq).execute().use { linkResp ->
+                                    val linkJson = JSONObject(linkResp.body?.string() ?: "{}")
+                                    val authUrl = linkJson.optString("redirect_url").ifBlank { linkJson.optString("redirectUrl") }
+                                    if (authUrl.isNotBlank()) {
+                                        withContext(Dispatchers.Main) {
+                                            try {
+                                                val chromeIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)).apply {
+                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                    setPackage("com.android.chrome")
+                                                }
+                                                context.startActivity(chromeIntent)
+                                            } catch (e: Exception) {
+                                                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)).apply {
+                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                }
+                                                context.startActivity(browserIntent)
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(context, "${svc?.name} requires manual setup. Please connect via the dashboard.", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "${svc?.name} requires manual setup. Please connect via the dashboard.", Toast.LENGTH_LONG).show()
+                        }
                     }
                     return@launch
                 }
@@ -871,7 +944,10 @@ User request: ${protectForAi(instruction, source = "automation request")}
 
 Return ONLY valid JSON. Example: {"actionId":"GMAIL_SEND_EMAIL","params":{"to":"john@example.com","subject":"Hello","body":"Hi there"}}
 For WhatsApp: {"actionId":"WHATSAPP_SEND_MESSAGE","params":{"to":"1234567890","message":"Hello"}}
-For Instagram: {"actionId":"INSTAGRAM_SEND_TEXT_MESSAGE","params":{"username":"john","message":"Hello"}}"""
+For Instagram: {"actionId":"INSTAGRAM_SEND_TEXT_MESSAGE","params":{"username":"john","message":"Hello"}}
+For Telegram: {"actionId":"TELEGRAM_SEND_MESSAGE","params":{"chat_id":"123456","text":"Hello"}}
+For Twitter: {"actionId":"TWITTER_CREATE_A_TWEET","params":{"text":"Hello world"}}
+For WhatsApp: {"actionId":"WHATSAPP_SEND_MESSAGE","params":{"to":"1234567890","message":"Hello"}}"""
 
         val response = groqClient.sendMessage(message = prompt, history = emptyList())
             .getOrDefault("")
@@ -943,6 +1019,9 @@ For Instagram: {"actionId":"INSTAGRAM_SEND_TEXT_MESSAGE","params":{"username":"j
             "instagram" -> "INSTAGRAM_SEND_TEXT_MESSAGE" to mapOf("username" to "", "message" to instruction)
             "facebook" -> "FACEBOOK_CREATE_POST" to mapOf("message" to instruction)
             "youtube" -> "YOUTUBE_UPLOAD_A_VIDEO" to mapOf("title" to instruction, "description" to "")
+            "telegram" -> "TELEGRAM_SEND_MESSAGE" to mapOf("chat_id" to "", "text" to instruction)
+            "twitter" -> "TWITTER_CREATE_A_TWEET" to mapOf("text" to instruction)
+            "tiktok" -> "TIKTOK_CREATE_A_VIDEO" to mapOf("title" to instruction)
             else -> null
         }
     }
