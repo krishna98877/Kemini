@@ -1,5 +1,7 @@
 package com.android.stremini_ai
 
+import com.android.stremini_ai.ServiceDef
+
 import android.Manifest
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
@@ -922,7 +924,7 @@ class ChatOverlayService : Service(), View.OnTouchListener {
 
         serviceScope.launch {
             val connected = composioClient.getConnectedServices()
-            val connectedServices = ALL_SERVICES.filter { connected.containsKey(it.id) }
+            val connectedServices = ComposioClient.ALL_SERVICES.filter { connected.containsKey(it.id) }
 
             withContext(Dispatchers.Main) {
                 list?.removeAllViews()
