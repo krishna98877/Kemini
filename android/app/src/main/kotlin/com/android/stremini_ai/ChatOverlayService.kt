@@ -318,56 +318,29 @@ class ChatOverlayService : Service(), View.OnTouchListener {
     // ── Idle animation ────────────────────────────────────────
     private fun resetIdleTimer() { idleAnimationController.resetTimer() }
 
+    /**
+     * Dim-only idle animation. We previously MOVED the bubble position toward
+     * the nearest edge during idle, which caused severe jitter on tap because
+     * the moment a finger touched the screen, restoreBubble() + the user's
+     * tap movement competed for the bubble position. The user explicitly
+     * reported "the bubble on click glitch jitter a lot" — root cause was here.
+     *
+     * Fix: keep the bubble at its exact position; only dim the alpha. No
+     * position animator runs anymore, so taps land cleanly.
+     */
     private fun shrinkBubble() {
         if (isBubbleIdle) return
         isBubbleIdle = true
-        bubbleIcon.animate().scaleX(IDLE_SCALE).scaleY(IDLE_SCALE).alpha(IDLE_ALPHA)
+        // Alpha-only — NO position change, NO scale change.
+        bubbleIcon.animate().alpha(IDLE_ALPHA)
             .setDuration(IDLE_ANIM_DURATION).setInterpolator(DecelerateInterpolator()).start()
-        preIdleX = bubbleScreenX
-        val screenWidth    = resources.displayMetrics.widthPixels
-        val bubbleSizePx   = dpToPx(bubbleSizeDp).toFloat()
-        val collapsedSize  = bubbleSizePx + dpToPx(10f)
-        val windowHalfSize = collapsedSize / 2
-        val targetX = if (bubbleScreenX > screenWidth / 2)
-            screenWidth - (bubbleSizePx / 2).toInt() + (bubbleSizePx * 0.4f).toInt()
-        else (bubbleSizePx / 2).toInt() - (bubbleSizePx * 0.4f).toInt()
-
-        idleAnimator?.cancel()
-        idleAnimator = ValueAnimator.ofInt(bubbleScreenX, targetX).apply {
-            duration = IDLE_ANIM_DURATION
-            interpolator = DecelerateInterpolator()
-            addUpdateListener { animator ->
-                if (isDragging || isMenuExpanded || isMenuAnimating) { cancel(); return@addUpdateListener }
-                bubbleScreenX = animator.animatedValue as Int
-                params.x = (bubbleScreenX - windowHalfSize).toInt()
-                try { windowManager.updateViewLayout(overlayView, params) } catch (_: Exception) {}
-            }
-            start()
-        }
     }
 
     private fun restoreBubble() {
         if (!isBubbleIdle) return
         isBubbleIdle = false
-        bubbleIcon.animate().scaleX(1f).scaleY(1f).alpha(1f)
-            .setDuration(200L).setInterpolator(DecelerateInterpolator()).start()
-        idleAnimator?.cancel()
-        val bubbleSizePx   = dpToPx(bubbleSizeDp).toFloat()
-        val screenWidth    = resources.displayMetrics.widthPixels
-        val collapsedSize  = bubbleSizePx + dpToPx(10f)
-        val windowHalfSize = collapsedSize / 2
-        val targetX = if (preIdleX > screenWidth / 2)
-            screenWidth - (bubbleSizePx / 2).toInt() else (bubbleSizePx / 2).toInt()
-        idleAnimator = ValueAnimator.ofInt(bubbleScreenX, targetX).apply {
-            duration = 200L; interpolator = DecelerateInterpolator()
-            addUpdateListener { animator ->
-                if (isDragging) { cancel(); return@addUpdateListener }
-                bubbleScreenX = animator.animatedValue as Int
-                params.x = (bubbleScreenX - windowHalfSize).toInt()
-                try { windowManager.updateViewLayout(overlayView, params) } catch (_: Exception) {}
-            }
-            start()
-        }
+        bubbleIcon.animate().alpha(1f)
+            .setDuration(180L).setInterpolator(DecelerateInterpolator()).start()
     }
 
     // ── Menu ────────────────────────────────────────────────────────────
@@ -565,19 +538,20 @@ class ChatOverlayService : Service(), View.OnTouchListener {
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT,
         )
-        // Medium-size centered panel (not full screen)
-        lp.gravity = Gravity.CENTER
-        
-        connectorsView = LayoutInflater.from(this).inflate(R.layout.connectors_panel_layout, null)
-        
+        // Manus-style bottom sheet — full width minus gutters, slides up.
+        lp.gravity = Gravity.BOTTOM
+        lp.x = 0
+        lp.y = 0
         val density = resources.displayMetrics.density
-        val screenHeight = resources.displayMetrics.heightPixels
-        val maxPanelHeight = (screenHeight * 0.72f).toInt()  // never exceed 72% of screen
+        lp.horizontalMargin = (10 * density).toFloat() / resources.displayMetrics.widthPixels
 
-        lp.width = (340 * density).toInt()
+        connectorsView = LayoutInflater.from(this).inflate(R.layout.connectors_panel_layout, null)
+
+        val screenHeight = resources.displayMetrics.heightPixels
+        val maxPanelHeight = (screenHeight * 0.78f).toInt()  // never exceed 78% of screen
+
+        lp.width = WindowManager.LayoutParams.MATCH_PARENT
         lp.height = WindowManager.LayoutParams.WRAP_CONTENT
-        // The XML now caps the ScrollView at 380dp, but we set a max height constraint here too
-        connectorsView?.minimumHeight = (200 * density).toInt()
 
         // Wire up search filter
         val searchInput = connectorsView?.findViewById<EditText>(R.id.composio_search_input)
@@ -587,13 +561,6 @@ class ChatOverlayService : Service(), View.OnTouchListener {
             override fun afterTextChanged(s: android.text.Editable?) {
                 val query = s?.toString()?.trim()?.lowercase() ?: ""
                 filterServicesList(query)
-                if (query.isNotEmpty()) {
-                    val filtered = ComposioClient.ALL_SERVICES.count { svc ->
-                        query.isEmpty() || svc.name.lowercase().contains(query) ||
-                            svc.keywords.any { it.contains(query) }
-                    }
-                } else {
-                }
             }
         })
 
@@ -619,16 +586,14 @@ class ChatOverlayService : Service(), View.OnTouchListener {
             refreshServiceConnectionStates()
         }
 
-        // Smooth fade-in + scale-up animation
+        // Slide-up + fade-in (Manus-style bottom sheet transition)
         connectorsView?.alpha = 0f
-        connectorsView?.scaleX = 0.95f
-        connectorsView?.scaleY = 0.95f
+        connectorsView?.translationY = dpToPx(60f).toFloat()
         try { wm.addView(connectorsView, lp) } catch (_: Exception) {}
         connectorsView?.animate()
             ?.alpha(1f)
-            ?.scaleX(1f)
-            ?.scaleY(1f)
-            ?.setDuration(250)
+            ?.translationY(0f)
+            ?.setDuration(300)
             ?.setInterpolator(DecelerateInterpolator())
             ?.start()
 
@@ -696,85 +661,94 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         }
     }
 
-    /** Build a single service cell (glassmorphic card) for the grid */
+    /**
+     * Build a Manus-style service row for the automation panel:
+     *   [icon 36dp] [name + "Not connected"] [Connect/Connected button]
+     *
+     * Previously this was a vertical card with icon-on-top — switched to a
+     * horizontal row so it matches the Manus reference UI the user wants.
+     */
     private fun buildServiceCell(svc: ServiceDef): LinearLayout {
         val density = resources.displayMetrics.density
         return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding((10 * density).toInt(), (14 * density).toInt(), (10 * density).toInt(), (12 * density).toInt())
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = (6 * density).toInt()
-                marginStart = (6 * density).toInt()
-                bottomMargin = (8 * density).toInt()
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(
+                (14 * density).toInt(), (12 * density).toInt(),
+                (14 * density).toInt(), (12 * density).toInt()
+            )
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = (4 * density).toInt()
             }
             // Tag for async status updates
             tag = svc.id
-            // Glassmorphic translucent white card background
+            // Subtle row background (matches Manus card_bg)
             background = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.manus_card_bg)
+            isClickable = true
+            isFocusable = true
 
-            // Service logo (vector drawable)
+            // Service logo (36dp, on the left)
             val icon = ImageView(this@ChatOverlayService).apply {
                 setImageResource(svc.iconRes)
                 scaleType = ImageView.ScaleType.FIT_CENTER
-                val size = (38 * density).toInt()
+                val size = (36 * density).toInt()
                 layoutParams = LinearLayout.LayoutParams(size, size).apply {
-                    bottomMargin = (6 * density).toInt()
+                    marginEnd = (14 * density).toInt()
                 }
             }
             addView(icon)
 
-            // Service name
+            // Text container (name + status, weight=1)
+            val textContainer = LinearLayout(this@ChatOverlayService).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
             val name = TextView(this@ChatOverlayService).apply {
                 text = svc.name
                 setTextColor(Color.parseColor("#FFFFFF"))
-                textSize = 11f
-                gravity = Gravity.CENTER
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = (6 * density).toInt() }
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
             }
-            addView(name)
+            val statusCaption = TextView(this@ChatOverlayService).apply {
+                text = "Tap to connect"
+                setTextColor(Color.parseColor("#71717A"))
+                textSize = 11f
+            }
+            textContainer.addView(name)
+            textContainer.addView(statusCaption)
+            addView(textContainer)
 
-            // Blue Connect button
+            // Connect / Connected button on the right
             val status = TextView(this@ChatOverlayService).apply {
                 text = "Connect"
                 setTextColor(Color.parseColor("#FFFFFF"))
-                textSize = 10f
+                textSize = 12f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
                 id = View.generateViewId()
                 tag = "status_label"
                 background = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.manus_connect_btn)
-                val padH = (12 * density).toInt()
-                val padV = (4 * density).toInt()
+                val padH = (16 * density).toInt()
+                val padV = (6 * density).toInt()
                 setPadding(padH, padV, padH, padV)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    gravity = Gravity.CENTER
-                }
+                )
             }
             addView(status)
 
-            // Click handler — entire cell is clickable
-            // From the panel, clicking ONLY connects (never disconnects).
-            // Disconnect is only available from Settings.
-            isClickable = true
-            isFocusable = true
+            // Click handler — entire row is clickable, AND the button is too.
             setOnClickListener {
                 if (status.text == "Connected") {
-                    // Already connected — show a toast, don't disconnect
                     Toast.makeText(this@ChatOverlayService, "${svc.name} is already connected. Disconnect from Settings.", Toast.LENGTH_SHORT).show()
                 } else if (status.text != "Connecting..." && status.text != "Disconnecting...") {
-                    // Connect flow — show immediate feedback + close panel + open WebView
                     status.text = "Connecting..."
-                    status.setTextColor(Color.parseColor("#FFFFFF"))
-                    // Close connectors panel immediately so WebView can open without delay
+                    status.setTextColor(Color.parseColor("#9CA3AF"))
                     hideConnectorsPanel()
-                    // Launch connect — ComposioAuthActivity opens automatically
                     composioClient.connectService(svc.id)
                 }
             }
@@ -840,12 +814,11 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         if (!isConnectorsVisible) return
         isConnectorsVisible = false
         isConnectorsActive = false
-        // Smooth fade-out + scale-down animation
+        // Slide-down + fade-out (Manus-style bottom sheet exit transition)
         connectorsView?.animate()
             ?.alpha(0f)
-            ?.scaleX(0.95f)
-            ?.scaleY(0.95f)
-            ?.setDuration(200)
+            ?.translationY(dpToPx(60f).toFloat())
+            ?.setDuration(220)
             ?.setInterpolator(AccelerateInterpolator())
             ?.withEndAction {
                 try { windowManager.removeView(connectorsView) } catch (_: Exception) {}
@@ -869,19 +842,24 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         }
     }
 
-    /** Update toggle icon in the floating chat input bar (independent of connectors panel) */
+    /** Update toggle icon in the floating chat input bar (independent of connectors panel).
+     *  Shows the count of services that are BOTH connected AND actively toggled on. */
     private fun updateChatConnectorsToggleIcon() {
         val chatView = floatingChatView ?: return
         val btn = chatView.findViewById<FrameLayout>(R.id.btn_connectors_toggle) ?: return
         val icon = btn.findViewById<ImageView>(R.id.connectors_toggle_icon)
         val badge = btn.findViewById<TextView>(R.id.connectors_active_dot)
-        val connectedCount = serviceConnectionState.values.count { it }
-        if (connectedCount > 0) {
+        // Count services that are BOTH connected AND actively enabled by the user.
+        val activeCount = activeConnectors.count { (svcId, isActive) ->
+            isActive && serviceConnectionState[svcId] == true
+        }
+        if (activeCount > 0) {
             icon?.setColorFilter(Color.parseColor("#3B82F6"))
             badge?.visibility = View.VISIBLE
-            badge?.text = connectedCount.toString()
+            badge?.text = activeCount.toString()
         } else {
-            icon?.setColorFilter(Color.parseColor("#555555"))
+            // Dim the icon so the user can see at a glance that no plugins are active.
+            icon?.setColorFilter(Color.parseColor("#6B7280"))
             badge?.visibility = View.GONE
         }
     }
@@ -903,107 +881,198 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         val typeParam = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+        // Wider panel so the row layout (icon | name | toggle) has room to breathe.
         val lp = WindowManager.LayoutParams(
-            260, WindowManager.LayoutParams.WRAP_CONTENT, typeParam,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT, typeParam,
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT
         )
-        lp.gravity = Gravity.BOTTOM or Gravity.END
-        lp.x = dpToPx(20f)
-        lp.y = dpToPx(160f)
+        // Anchored to the bottom like a bottom sheet — matches Manus transitions.
+        lp.gravity = Gravity.BOTTOM
+        lp.x = 0
+        lp.y = 0
+        // Allow the panel to extend full width minus side gutters.
+        val density = resources.displayMetrics.density
+        lp.horizontalMargin = (12 * density).toFloat() / resources.displayMetrics.widthPixels
 
-        // Build the list of connected apps with toggles
+        // Header title & close button
+        connectedAppsPanel?.findViewById<TextView>(R.id.tv_panel_title)?.text = "Connectors"
+        connectedAppsPanel?.findViewById<ImageView>(R.id.btn_close_connected_apps)?.setOnClickListener {
+            hideConnectedAppsPanel()
+        }
+
+        // Build the list of ALL services (not just connected) so the user can
+        // connect + toggle from the same panel — Manus-style.
         val list = connectedAppsPanel?.findViewById<LinearLayout>(R.id.connected_apps_list)
         val emptyText = connectedAppsPanel?.findViewById<TextView>(R.id.tv_no_connected)
         val countText = connectedAppsPanel?.findViewById<TextView>(R.id.tv_connected_count)
 
+        // Load connected services asynchronously, then build rows.
         serviceScope.launch {
             val connected = composioClient.getConnectedServices()
-            val connectedServices = ComposioClient.ALL_SERVICES.filter { connected.containsKey(it.id) }
+            val allServices = ComposioClient.ALL_SERVICES
+            // Sort: connected first, then alphabetically.
+            val sorted = allServices.sortedWith(
+                compareByDescending<ServiceDef> { connected.containsKey(it.id) }
+                    .thenBy { it.name }
+            )
 
             withContext(Dispatchers.Main) {
                 list?.removeAllViews()
-                if (connectedServices.isEmpty()) {
+                if (allServices.isEmpty()) {
                     emptyText?.visibility = View.VISIBLE
+                    emptyText?.text = "No connectors available."
                     countText?.text = "0"
                 } else {
                     emptyText?.visibility = View.GONE
-                    countText?.text = connectedServices.size.toString()
+                    val connectedCount = allServices.count { connected.containsKey(it.id) }
+                    countText?.text = connectedCount.toString()
 
-                    for (svc in connectedServices) {
-                        val row = LinearLayout(this@ChatOverlayService).apply {
-                            orientation = LinearLayout.HORIZONTAL
-                            gravity = Gravity.CENTER_VERTICAL
-                            setPadding(0, dpToPx(6f), 0, dpToPx(6f))
-                        }
-
-                        // App logo
-                        val icon = ImageView(this@ChatOverlayService).apply {
-                            setImageResource(svc.iconRes)
-                            scaleType = ImageView.ScaleType.FIT_CENTER
-                            val size = dpToPx(24f)
-                            layoutParams = LinearLayout.LayoutParams(size, size).apply {
-                                marginEnd = dpToPx(10f)
-                            }
-                        }
-                        row.addView(icon)
-
-                        // App name
-                        val name = TextView(this@ChatOverlayService).apply {
-                            text = svc.name
-                            setTextColor(Color.parseColor("#D4D4D8"))
-                            textSize = 13f
-                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                        }
-                        row.addView(name)
-
-                        // Toggle switch
-                        val toggle = android.widget.Switch(this@ChatOverlayService).apply {
-                            val isActive = activeConnectors[svc.id] ?: true
-                            isChecked = isActive
-                            trackDrawable = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.toggle_bg)
-                            thumbDrawable = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.toggle_thumb)
-                            setOnCheckedChangeListener { _, isChecked ->
-                                activeConnectors[svc.id] = isChecked
-                                if (isChecked) {
-                                    Toast.makeText(this@ChatOverlayService, "${svc.name} activated", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(this@ChatOverlayService, "${svc.name} deactivated", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        }
-                        row.addView(toggle)
-
-                        list?.addView(row)
-
-                        // Initialize active state
-                        if (!activeConnectors.containsKey(svc.id)) {
-                            activeConnectors[svc.id] = true
-                        }
+                    for (svc in sorted) {
+                        val isConnected = connected.containsKey(svc.id)
+                        list?.addView(buildManusStyleConnectorRow(svc, isConnected))
                     }
                 }
             }
         }
 
-        // Smooth fade-in
+        // Smooth slide-up + fade-in animation (Manus-style bottom sheet transition)
         connectedAppsPanel?.alpha = 0f
-        connectedAppsPanel?.scaleY = 0.95f
+        connectedAppsPanel?.translationY = dpToPx(40f).toFloat()
         try { windowManager.addView(connectedAppsPanel, lp) } catch (_: Exception) {}
         connectedAppsPanel?.animate()
-            ?.alpha(1f)?.scaleY(1f)
-            ?.setDuration(200)?.setInterpolator(DecelerateInterpolator())?.start()
+            ?.alpha(1f)
+            ?.translationY(0f)
+            ?.setDuration(280)
+            ?.setInterpolator(DecelerateInterpolator())
+            ?.start()
 
         isConnectedAppsPanelVisible = true
+        // Refresh the plug icon state
+        updateChatConnectorsToggleIcon()
+    }
+
+    /**
+     * Build a Manus-style connector row:
+     *   [icon 32dp] [name + status text] [toggle/Connect button]
+     *
+     * - If connected: a Switch toggle that defaults to OFF (per user request)
+     * - If not connected: a "Connect" button that launches the OAuth flow
+     */
+    private fun buildManusStyleConnectorRow(svc: ServiceDef, isConnected: Boolean): LinearLayout {
+        val density = resources.displayMetrics.density
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(
+                (14 * density).toInt(), (12 * density).toInt(),
+                (14 * density).toInt(), (12 * density).toInt()
+            )
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            isClickable = true
+            isFocusable = true
+        }
+
+        // Icon (32dp, brand logo)
+        val icon = ImageView(this).apply {
+            setImageResource(svc.iconRes)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            val size = (32 * density).toInt()
+            layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                marginEnd = (14 * density).toInt()
+            }
+        }
+        row.addView(icon)
+
+        // Name + status text (middle, weight=1)
+        val textContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val name = TextView(this).apply {
+            text = svc.name
+            setTextColor(Color.parseColor("#FFFFFF"))
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        val status = TextView(this).apply {
+            text = if (isConnected) "Connected" else "Not connected"
+            setTextColor(if (isConnected) Color.parseColor("#22C55E") else Color.parseColor("#71717A"))
+            textSize = 11f
+            id = View.generateViewId()
+            tag = "row_status"
+        }
+        textContainer.addView(name)
+        textContainer.addView(status)
+        row.addView(textContainer)
+
+        if (isConnected) {
+            // Toggle switch — defaults to OFF so the user explicitly opts in
+            val toggle = android.widget.Switch(this).apply {
+                // Default OFF per user request ("plugins should be disabled by default")
+                val isActive = activeConnectors[svc.id] ?: false
+                isChecked = isActive
+                trackDrawable = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.toggle_bg)
+                thumbDrawable = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.toggle_thumb)
+                setOnCheckedChangeListener { switchView, checked ->
+                    activeConnectors[svc.id] = checked
+                    if (checked) {
+                        switchView.textOn
+                        Toast.makeText(this@ChatOverlayService, "${svc.name} enabled for automation", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this@ChatOverlayService, "${svc.name} disabled", Toast.LENGTH_SHORT).show()
+                    }
+                    updateChatConnectorsToggleIcon()
+                }
+                // Initialize the active state map (defaults to false)
+                if (!activeConnectors.containsKey(svc.id)) {
+                    activeConnectors[svc.id] = false
+                }
+            }
+            row.addView(toggle)
+        } else {
+            // Connect button (Manus-style outline button)
+            val connectBtn = TextView(this).apply {
+                text = "Connect"
+                setTextColor(Color.parseColor("#FFFFFF"))
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                background = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.manus_connect_btn)
+                val padH = (16 * density).toInt()
+                val padV = (6 * density).toInt()
+                setPadding(padH, padV, padH, padV)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    text = "Connecting..."
+                    setTextColor(Color.parseColor("#9CA3AF"))
+                    // Close panel + launch OAuth flow
+                    hideConnectedAppsPanel()
+                    composioClient.connectService(svc.id)
+                }
+            }
+            row.addView(connectBtn)
+        }
+
+        return row
     }
 
     private fun hideConnectedAppsPanel() {
         if (!isConnectedAppsPanelVisible) return
         isConnectedAppsPanelVisible = false
+        // Slide-down + fade-out (Manus-style bottom sheet exit transition)
         connectedAppsPanel?.animate()
-            ?.alpha(0f)?.scaleY(0.95f)
-            ?.setDuration(150)?.setInterpolator(AccelerateInterpolator())
+            ?.alpha(0f)
+            ?.translationY(dpToPx(40f).toFloat())
+            ?.setDuration(200)
+            ?.setInterpolator(AccelerateInterpolator())
             ?.withEndAction {
                 try { windowManager.removeView(connectedAppsPanel) } catch (_: Exception) {}
                 connectedAppsPanel = null
@@ -1095,8 +1164,16 @@ class ChatOverlayService : Service(), View.OnTouchListener {
             }
         }
 
-        // ── Connectors toggle (wire icon like ChatGPT plugin button)
-        view.findViewById<FrameLayout>(R.id.btn_connectors_toggle)?.setOnClickListener {
+        // ── Connectors toggle (wire icon like ChatGPT plugin button).
+        // Visual feedback: tap scales the icon briefly so the user can see
+        // the press is registered (was previously silent/broken-feeling).
+        val connectorsBtn = view.findViewById<FrameLayout>(R.id.btn_connectors_toggle)
+        connectorsBtn?.setOnClickListener {
+            // Brief press feedback
+            it.animate().scaleX(0.85f).scaleY(0.85f).setDuration(80)
+                .withEndAction {
+                    it.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                }.start()
             toggleConnectedAppsPanel()
         }
 
@@ -1306,10 +1383,18 @@ class ChatOverlayService : Service(), View.OnTouchListener {
     }
 
     // ── Touch / drag ──────────────────────────────────────────────────
+    //
+    // Tap vs. drag is decided using the system's scaledTouchSlop (typically
+    // 24–32px = ~8dp). Below that threshold, every gesture is a tap and we
+    // do NOT move the bubble — eliminating the "jitter on click" the user
+    // reported. Above the threshold, it's a drag and we follow the finger.
     override fun onTouch(v: View, event: MotionEvent): Boolean {
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
                 resetIdleTimer()
+                // Restore bubble immediately on press so the user sees the
+                // un-dimmed bubble under their finger (feels responsive).
+                if (isBubbleIdle) restoreBubble()
                 initialTouchX = event.rawX; initialTouchY = event.rawY
                 initialX = bubbleScreenX; initialY = bubbleScreenY
                 isDragging = false; hasMoved = false; return true
@@ -1318,7 +1403,11 @@ class ChatOverlayService : Service(), View.OnTouchListener {
                 if (isWindowResizing || preventPositionUpdates) return true
                 val dx = (event.rawX - initialTouchX).toInt()
                 val dy = (event.rawY - initialTouchY).toInt()
-                if (abs(dx) > touchSlop || abs(dy) > touchSlop) {
+                // Use 1.5x touch slop for drag detection — gives the tap a
+                // generous deadzone so micro-movements don't accidentally
+                // start a drag and reposition the bubble.
+                val dragThreshold = (touchSlop * 1.5f).toInt()
+                if (abs(dx) > dragThreshold || abs(dy) > dragThreshold) {
                     hasMoved = true
                     if (!isMenuExpanded) {
                         isDragging = true

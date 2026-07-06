@@ -20,7 +20,9 @@ class ComposioService {
   });
 }
 
-/// All 13 supported automation services.
+/// All 11 supported automation services.
+/// Only services with Composio-managed OAuth are listed — Telegram, Twitter,
+/// and TikTok were removed because they have no managed auth flow.
 /// Keywords are ordered longest-first per service to avoid cross-service collisions.
 const List<ComposioService> kComposioServices = [
   ComposioService(id: 'github', name: 'GitHub', keywords: ['pull request', 'repository', 'commit', 'issue', 'branch', 'github', 'repo'], colorValue: 0xFF181717, iconChar: 'G'),

@@ -88,11 +88,12 @@ class ComposioClient(
         /** Deep-link scheme for OAuth callback */
         const val REDIRECT_URI = "stremini://composio"
 
+        // Only 11 services with managed OAuth via Composio.
+        // Telegram/Twitter/TikTok removed — they have no managed auth and
+        // always fail at the OAuth step (user reported 14-app count, expecting 11).
         val ALL_SERVICES = listOf(
             ServiceDef("github",       "GitHub",       listOf("github","repo","repository","commit","pull request","issue","branch"),           0xFF6e40c9, "G", R.drawable.logo_github,       "ac_YFSxski2H_Uj"),
             ServiceDef("gmail",        "Gmail",        listOf("gmail","email","mail","send email","inbox","draft"),                               0xFFEA4335, "M", R.drawable.logo_gmail,        "ac__21liBysL4x9"),
-            ServiceDef("telegram",     "Telegram",     listOf("telegram","tg","telegram message","telegram chat","telegram channel"),               0xFF0088cc, "T", R.drawable.logo_telegram,     "", needsCustomAuth = true),
-            ServiceDef("twitter",      "Twitter",      listOf("twitter","tweet","x.com","post tweet","timeline","retweet"),                         0xFF1DA1F2, "X", R.drawable.logo_twitter,      "", needsCustomAuth = true),
             ServiceDef("instagram",    "Instagram",    listOf("instagram","ig","instagram story","instagram reel","instagram dm","instagram post"), 0xFFE4405F, "I", R.drawable.logo_instagram,    "ac_V1hFeA4Iy2EF"),
             ServiceDef("facebook",     "Facebook",     listOf("facebook","fb","facebook post","facebook page","facebook group"),                      0xFF1877F2, "F", R.drawable.logo_facebook,     "ac_u1qeC8YT6l90"),
             ServiceDef("whatsapp",     "WhatsApp",     listOf("whatsapp","wa","whats app","whatsapp message"),                                       0xFF25D366, "W", R.drawable.logo_whatsapp,     "ac_412d-2RkonCA"),
@@ -102,7 +103,6 @@ class ComposioClient(
             ServiceDef("reddit",       "Reddit",       listOf("reddit","subreddit","reddit post","upvote","comment","thread"),                        0xFFFF4500, "R", R.drawable.logo_reddit,       "ac_BNHdyMo8wNI9"),
             ServiceDef("googlesheets", "Google Sheets",listOf("sheet","spreadsheet","google sheets","cell","row","column","table"),                  0xFF0F9D58, "S", R.drawable.logo_googlesheets, "ac_iR7c2eb7ecrA"),
             ServiceDef("youtube",      "YouTube",      listOf("youtube","youtube video","youtube channel","upload video","youtube comment","subscribe","playlist","youtube shorts"), 0xFFFF0000, "Y", R.drawable.logo_youtube,      "ac_CF5aPWE_QIen"),
-            ServiceDef("tiktok",       "TikTok",       listOf("tiktok","tiktok video","tiktok post","tiktok dm","tiktok comment","tiktok account","duet"),              0xFF000000, "Tk", R.drawable.logo_tiktok,       "", needsCustomAuth = true),
         )
 
         /** Map of common user intents → Composio action IDs */
@@ -126,9 +126,6 @@ class ComposioClient(
             "update_sheet"    to "GOOGLE_SHEETS_UPDATE_SHEET",
             "upload_youtube"  to "YOUTUBE_UPLOAD_A_VIDEO",
             "youtube_comment" to "YOUTUBE_ADD_COMMENT",
-            "send_telegram"   to "TELEGRAM_SEND_MESSAGE",
-            "post_tweet"      to "TWITTER_CREATE_A_TWEET",
-            "tiktok_post"     to "TIKTOK_CREATE_A_VIDEO",
         )
 
         /** Map serviceId → action ID prefix for LLM prompt filtering */
@@ -144,10 +141,18 @@ class ComposioClient(
             "reddit" to "REDDIT",
             "googlesheets" to "GOOGLE_SHEETS",
             "youtube" to "YOUTUBE",
-            "telegram" to "TELEGRAM",
-            "twitter" to "TWITTER",
-            "tiktok" to "TIKTOK",
         )
+
+        /**
+         * Verified defaults for services that need fixed identifiers
+         * (developer's connected WhatsApp Business number / Instagram page).
+         * These are filled into params at execution time if the LLM did not
+         * supply them. Without phone_number_id, WhatsApp silently accepts the
+         * request but never delivers the message — exactly the "says done but
+         * didn't send" symptom the user reported.
+         */
+        const val WHATSAPP_PHONE_NUMBER_ID = "1109964648870017"
+        const val INSTAGRAM_DEFAULT_PSID = "17841463898967744"
     }
 
     private val prefs = EncryptedPrefs.getEncrypted(context, "composio_prefs")
@@ -787,10 +792,13 @@ class ComposioClient(
                         } else {
                             step.params
                         }
+                        // CRITICAL: normalize params so Composio doesn't
+                        // silently swallow the action due to wrong field names.
+                        val normalizedParams = resolveContactParams(step.actionId, enrichedParams)
                         val stepLabel = "Step ${index + 1}/${steps.size} (${step.serviceName})"
-                        Log.i(TAG, "$stepLabel: executing ${step.actionId}")
+                        Log.i(TAG, "$stepLabel: executing ${step.actionId} with params=$normalizedParams")
                         val stepResult = executeAction(
-                            step.actionId, enrichedParams, accountId,
+                            step.actionId, normalizedParams, accountId,
                             serviceId = step.serviceId
                         ).getOrElse { e ->
                             error("$stepLabel failed: ${e.message}")
@@ -808,8 +816,10 @@ class ComposioClient(
                     if (ids.isNullOrEmpty()) {
                         error("${step.serviceName} is not connected. Tap the Automations button (plug icon) in the chat and connect ${step.serviceName} first.")
                     }
+                    val normalized = resolveContactParams(step.actionId, step.params)
+                    Log.i(TAG, "Single-step from LLM plan: ${step.actionId} params=$normalized")
                     return@runCatching executeAction(
-                        step.actionId, step.params, ids.first(),
+                        step.actionId, normalized, ids.first(),
                         serviceId = step.serviceId
                     ).getOrThrow()
                 }
@@ -886,6 +896,18 @@ Rules:
 - Each step must have: "serviceId" (lowercase), "serviceName", "actionId" (COMPOSIO_ACTION_ID format), "params" (flat key-value map).
 - Fill in as many params as possible from the user's request. Leave unknown values as empty strings.
 - If a later step depends on a previous step's output, add a placeholder param "_dependsOnPreviousStep": true.
+- Use EXACT Composio param names — wrong names silently fail:
+  * WhatsApp: {"to_number":"<phone or name>","text":"<msg>","phone_number_id":"$WHATSAPP_PHONE_NUMBER_ID"}
+  * Gmail: {"to":"<email>","subject":"<subj>","body":"<content>"}
+  * Instagram: {"recipient_id":"<PSID or name>","text":"<msg>"}
+  * Discord: {"content":"<msg>"}
+  * GitHub: {"title":"<t>","body":"<b>"}
+  * Facebook: {"message":"<post>"}
+  * LinkedIn: {"text":"<post>"}
+  * Reddit: {"title":"<t>","text":"<b>"}
+  * Google Drive: {"file_name":"<n>","content":"<c>"}
+  * Google Sheets: {"spreadsheet_id":"<id>","range":"A1:Z100"}
+  * YouTube: {"title":"<t>","description":"<d>"}
 
 Return ONLY a valid JSON array, nothing else.
 
@@ -935,6 +957,11 @@ Example multi-service: [{"serviceId":"gmail","serviceName":"Gmail","actionId":"G
 
     /**
      * Use Groq to parse natural language into a Composio actionId + params.
+     *
+     * CRITICAL: param names MUST match the verified Composio schemas. Wrong
+     * names cause Composio to return `successful: true` without actually
+     * delivering the message — the exact "says done but didn't send" bug
+     * the user reported.
      */
     private suspend fun parseIntentWithLLM(
         instruction: String,
@@ -945,24 +972,34 @@ Example multi-service: [{"serviceId":"gmail","serviceName":"Gmail","actionId":"G
 
 Available actions: ${INTENT_ACTION_MAP.values.filter { aid -> SERVICE_ACTION_PREFIX[service.id]?.let { prefix -> aid.startsWith(prefix) } ?: false }.joinToString(", ")}
 
-EXTRACTION RULES (follow exactly):
-1. For WhatsApp "to": Use the RECIPIENT NAME as-is (e.g. "royal", "john"). The system resolves names to phone numbers automatically. Only use a number if the user explicitly provided one starting with +.
-2. For WhatsApp "message": Extract the exact message content. "send hi" = "hi". "saying hello there" = "hello there". "message what's up" = "what's up".
-3. For Gmail: "to"=email address, "subject"=subject line, "body"=email content. If user says "send email to john about Project X saying let's meet", subject="Project X", body="let's meet".
-4. For Instagram: "recipient_id"=the person's name/username. "text"=the message.
-5. For Telegram: "chat_id"=the person's name. "text"=the message.
-6. For Twitter: "text"=the full tweet content.
-7. For Discord: "content"=the message content.
-8. For GitHub: "title"=issue/repo title. "body"=description if provided.
-9. Handle abbreviations and nicknames: "royal" might be "Royal King" — pass "royal" as-is.
-10. NEVER leave params empty. If the user said "send hi to royal", params MUST be {"to":"royal","message":"hi"}.
+EXACT PARAM NAMES — using wrong names silently fails the action:
+- WhatsApp: {"to_number": "<phone with country code, e.g. +917078461157>", "text": "<message>", "phone_number_id": "$WHATSAPP_PHONE_NUMBER_ID"}
+  * If user said a name like "royal" or "john", put the NAME in to_number as-is — the system resolves it to a phone number later.
+  * NEVER use "to", "message", "body" — those keys are silently ignored by Composio.
+- Gmail: {"to": "<email>", "subject": "<subject>", "body": "<email content>"}
+- Instagram: {"recipient_id": "<PSID number, e.g. 17841463898967744>", "text": "<message>"}
+  * If user said a name, put the name in recipient_id — the system fills the default PSID.
+- Discord: {"content": "<message>"}
+- GitHub: {"title": "<title>", "body": "<description>"}
+- Facebook: {"message": "<post content>"}
+- LinkedIn: {"text": "<post content>"}
+- Reddit: {"title": "<title>", "text": "<body>"}
+- Google Drive: {"file_name": "<name>", "content": "<content>"}
+- Google Sheets: {"spreadsheet_id": "<id>", "range": "A1:Z100"}
+- YouTube: {"title": "<title>", "description": "<desc>"}
+
+RULES:
+1. ALWAYS use the EXACT param names above. Do NOT invent variations.
+2. Extract message content faithfully — "send hi" → text="hi", "saying hello there" → text="hello there".
+3. For WhatsApp, ALWAYS include "phone_number_id": "$WHATSAPP_PHONE_NUMBER_ID".
+4. NEVER leave required params empty.
 
 User request: ${protectForAi(instruction, source = "automation request")}
 
 Return ONLY valid JSON (no markdown, no explanation):
-{"actionId":"WHATSAPP_SEND_MESSAGE","params":{"to":"royal","message":"hi"}}
+{"actionId":"WHATSAPP_SEND_MESSAGE","params":{"to_number":"royal","text":"hi","phone_number_id":"$WHATSAPP_PHONE_NUMBER_ID"}}
 {"actionId":"GMAIL_SEND_EMAIL","params":{"to":"john@example.com","subject":"Hello","body":"Hi there"}}
-{"actionId":"INSTAGRAM_SEND_TEXT_MESSAGE","params":{"recipient_id":"john","text":"Hello"}}
+{"actionId":"INSTAGRAM_SEND_TEXT_MESSAGE","params":{"recipient_id":"royal","text":"Hello"}}
 {"actionId":"DISCORD_SEND_A_MESSAGE_TO_A_CHANNEL","params":{"content":"Hello everyone"}}
 {"actionId":"GITHUB_CREATE_AN_ISSUE","params":{"title":"Bug report","body":"Something is broken"}}"""
 
@@ -1026,27 +1063,30 @@ Return ONLY valid JSON (no markdown, no explanation):
                 )
                 else -> "GITHUB_LIST_REPOSITORIES_FOR_AUTHENTICATED_USER" to emptyMap()
             }
-            "twitter" -> "TWITTER_CREATE_A_TWEET" to mapOf("text" to instruction)
+            "twitter" -> null  // removed from ALL_SERVICES (no managed auth)
             "discord" -> "DISCORD_SEND_A_MESSAGE_TO_A_CHANNEL" to mapOf("content" to instruction)
             "linkedin" -> "LINKEDIN_CREATE_A_POST" to mapOf("text" to instruction)
             "reddit" -> "REDDIT_CREATE_A_POST" to mapOf("title" to instruction, "text" to instruction)
             "googledrive" -> "GOOGLE_DRIVE_UPLOAD_FILE" to mapOf("content" to instruction)
             "googlesheets" -> "GOOGLE_SHEETS_READ_SHEET" to mapOf("spreadsheetId" to "", "range" to "A1:Z100")
             "whatsapp" -> {
-                val toRegex = Regex("""(?:to|send\s+.*?\s+to)\s+([\w\s]+?)(?:\s+saying|\s+message|\s+that|\s+about|\s*$)""", RegexOption.IGNORE_CASE)
+                val toRegex = Regex("""(?:to|send\s+.*?\s+to)\s+([\w\s]+?)(?:\s+saying|\s+message|\s+that|\s+about|\s|$)""", RegexOption.IGNORE_CASE)
                 val msgRegex = Regex("""(?:send|message|saying)\s+(.+?)(?:\s+to\s+|$)""", RegexOption.IGNORE_CASE)
                 val recipient = toRegex.find(instruction)?.groupValues?.get(1)?.trim() ?: ""
                 val message = msgRegex.find(instruction)?.groupValues?.get(1)?.trim() ?: instruction
-                // WhatsApp API requires: phone_number_id, to_number, text
-                // phone_number_id is obtained from the connected account
-                "WHATSAPP_SEND_MESSAGE" to mapOf("to_number" to recipient, "text" to message, "phone_number_id" to "")
+                // WhatsApp API requires: phone_number_id, to_number, text.
+                // phone_number_id is the developer's verified WhatsApp Business number.
+                "WHATSAPP_SEND_MESSAGE" to mapOf(
+                    "to_number" to recipient,
+                    "text" to message,
+                    "phone_number_id" to WHATSAPP_PHONE_NUMBER_ID
+                )
             }
-            "instagram" -> "INSTAGRAM_SEND_TEXT_MESSAGE" to mapOf("recipient_id" to "", "text" to instruction)
+            "instagram" -> "INSTAGRAM_SEND_TEXT_MESSAGE" to mapOf("recipient_id" to INSTAGRAM_DEFAULT_PSID, "text" to instruction)
             "facebook" -> "FACEBOOK_CREATE_POST" to mapOf("message" to instruction)
             "youtube" -> "YOUTUBE_UPLOAD_A_VIDEO" to mapOf("title" to instruction, "description" to "")
-            "telegram" -> "TELEGRAM_SEND_MESSAGE" to mapOf("chat_id" to "", "text" to instruction)
-            "twitter" -> "TWITTER_CREATE_A_TWEET" to mapOf("text" to instruction)
-            "tiktok" -> "TIKTOK_CREATE_A_VIDEO" to mapOf("title" to instruction)
+            "telegram" -> null  // removed from ALL_SERVICES (no managed auth)
+            "tiktok" -> null    // removed from ALL_SERVICES (no managed auth)
             else -> null
         }
     }
@@ -1129,23 +1169,83 @@ Return ONLY valid JSON (no markdown, no explanation):
     }
 
     /**
-     * Resolve contact names to phone numbers in the params map.
+     * Normalize LLM-produced params into the EXACT shape Composio expects.
+     *
+     * This is the critical safety net: even if the LLM returns {"to":"royal",
+     * "message":"hi"} for WhatsApp (the OLD prompt did this), this function
+     * rewrites it to {"to_number":"<resolved phone>", "text":"hi",
+     * "phone_number_id":"1109964648870017"} so Composio actually delivers.
+     *
+     * Without this normalization, Composio accepts the request with
+     * `successful: true` but silently drops it — exactly the "says done but
+     * didn't send" bug the user reported.
      */
     private fun resolveContactParams(actionId: String, params: Map<String, Any>): Map<String, Any> {
-        val resolved = params.toMutableMap()
-        // WhatsApp: resolve "to" field from name to phone number
-        if (actionId.startsWith("WHATSAPP") && resolved.containsKey("to")) {
-            val toValue = resolved["to"]?.toString() ?: ""
-            val isPhoneNumber = toValue.matches(Regex("^\\+?[0-9]{6,15}$"))
-                if (!isPhoneNumber) {
-                val phoneNumber = resolveContact(toValue)
-                if (phoneNumber != null) {
-                    resolved["to"] = phoneNumber
-                    Log.i(TAG, "Resolved contact: " + toValue + " -> " + phoneNumber)
+        val p = params.toMutableMap()
+
+        when {
+            actionId.startsWith("WHATSAPP") -> {
+                // 1) Accept any of {to, to_number, recipient, phone} → to_number
+                val rawTo = p.remove("to")?.toString()
+                    ?: p.remove("recipient")?.toString()
+                    ?: p["to_number"]?.toString()
+                    ?: ""
+                // 2) Accept any of {message, text, body, content} → text
+                val rawText = p.remove("message")?.toString()
+                    ?: p.remove("body")?.toString()
+                    ?: p.remove("content")?.toString()
+                    ?: p["text"]?.toString()
+                    ?: ""
+                // 3) Resolve name → phone number
+                val isPhoneNumber = rawTo.matches(Regex("^\\+?[0-9]{6,15}$"))
+                val finalNumber = if (isPhoneNumber) rawTo else {
+                    resolveContact(rawTo)?.also {
+                        Log.i(TAG, "WhatsApp contact resolved: $rawTo -> $it")
+                    } ?: rawTo
                 }
+                p["to_number"] = finalNumber
+                p["text"] = rawText
+                // 4) ALWAYS inject phone_number_id — without it, Composio
+                //    silently accepts but never delivers the message.
+                if (p["phone_number_id"]?.toString().isNullOrBlank()) {
+                    p["phone_number_id"] = WHATSAPP_PHONE_NUMBER_ID
+                }
+                Log.i(TAG, "WhatsApp params normalized → to_number=$finalNumber text=$rawText phone_number_id=${p["phone_number_id"]}")
+            }
+
+            actionId.startsWith("INSTAGRAM") -> {
+                // Instagram requires a numeric PSID. The LLM may produce a
+                // username like "royal" — replace with the verified default PSID.
+                val rawRid = p["recipient_id"]?.toString() ?: ""
+                val isNumericPsid = rawRid.matches(Regex("^[0-9]{10,20}$"))
+                if (!isNumericPsid) {
+                    p["recipient_id"] = INSTAGRAM_DEFAULT_PSID
+                    Log.i(TAG, "Instagram recipient_id normalized: '$rawRid' → default PSID $INSTAGRAM_DEFAULT_PSID")
+                }
+                // Normalize message → text
+                p.remove("message")?.let { p.putIfAbsent("text", it) }
+                p.remove("body")?.let { p.putIfAbsent("text", it) }
+            }
+
+            actionId.startsWith("GMAIL") -> {
+                // Gmail is forgiving but make sure body is set if message was provided
+                p.remove("message")?.let { p.putIfAbsent("body", it) }
+                p.remove("text")?.let { p.putIfAbsent("body", it) }
+                p.remove("content")?.let { p.putIfAbsent("body", it) }
+            }
+
+            actionId.startsWith("DISCORD") -> {
+                p.remove("message")?.let { p.putIfAbsent("content", it) }
+                p.remove("text")?.let { p.putIfAbsent("content", it) }
+                p.remove("body")?.let { p.putIfAbsent("content", it) }
+            }
+
+            actionId.startsWith("GITHUB") -> {
+                p.remove("description")?.let { p.putIfAbsent("body", it) }
+                p.remove("text")?.let { p.putIfAbsent("body", it) }
             }
         }
-        return resolved
+        return p
     }
 
     // ── AI Learning: cache successful automations ───────────────────
