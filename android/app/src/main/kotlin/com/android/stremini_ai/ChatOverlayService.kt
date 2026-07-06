@@ -581,7 +581,6 @@ class ChatOverlayService : Service(), View.OnTouchListener {
 
         // Wire up search filter
         val searchInput = connectorsView?.findViewById<EditText>(R.id.composio_search_input)
-        val searchCount = connectorsView?.findViewById<TextView>(R.id.composio_search_count)
         searchInput?.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -593,10 +592,7 @@ class ChatOverlayService : Service(), View.OnTouchListener {
                         query.isEmpty() || svc.name.lowercase().contains(query) ||
                             svc.keywords.any { it.contains(query) }
                     }
-                    searchCount?.text = "$filtered found"
-                    searchCount?.visibility = View.VISIBLE
                 } else {
-                    searchCount?.visibility = View.GONE
                 }
             }
         })
