@@ -189,12 +189,7 @@ class ComposioServiceManager {
         return 'Could not detect which service to use. Try mentioning the service name (e.g., "send a Gmail email").';
       }
 
-      // Check if the service is connected
-      // Skip connection check — let Kotlin side handle it
-    // (Dart _serviceStatus may be stale)
-    
-
-      // Route through native for execution
+      // Route through native for execution — Kotlin side handles connection check
       if (Platform.isAndroid) {
         final result = await _channel.invokeMethod<String>('executeAutomation', {
           'instruction': instruction,
