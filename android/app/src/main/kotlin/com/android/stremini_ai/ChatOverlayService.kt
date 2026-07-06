@@ -757,34 +757,15 @@ class ChatOverlayService : Service(), View.OnTouchListener {
             }
             addView(status)
 
-            // Click handler — entire cell is clickable (not just the button)
+            // Click handler — entire cell is clickable
+            // From the panel, clicking ONLY connects (never disconnects).
+            // Disconnect is only available from Settings.
             isClickable = true
             isFocusable = true
             setOnClickListener {
                 if (status.text == "Connected") {
-                    // Disconnect flow
-                    status.text = "Disconnecting..."
-                    status.setTextColor(Color.parseColor("#FFFFFF"))
-                    status.background = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.btn_connect_blue)
-                    serviceConnectionState[svc.id] = false
-                    serviceScope.launch {
-                        val success = composioClient.disconnectService(svc.id)
-                        if (!success) {
-                            serviceConnectionState[svc.id] = true
-                            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                                status.text = "Connected"
-                                status.setTextColor(Color.parseColor("#FFFFFF"))
-                                status.background = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.btn_connected_green)
-                            }
-                            Toast.makeText(this@ChatOverlayService, "Disconnect failed. Try again.", Toast.LENGTH_SHORT).show()
-                        } else {
-                            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                                status.text = "Connect"
-                                status.background = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.btn_connect_blue)
-                            }
-                            Toast.makeText(this@ChatOverlayService, "${svc.name} disconnected", Toast.LENGTH_SHORT).show()
-                        }
-                    }
+                    // Already connected — show a toast, don't disconnect
+                    Toast.makeText(this@ChatOverlayService, "${svc.name} is already connected. Disconnect from Settings.", Toast.LENGTH_SHORT).show()
                 } else if (status.text != "Connecting..." && status.text != "Disconnecting...") {
                     // Connect flow — show immediate feedback + close panel + open WebView
                     status.text = "Connecting..."

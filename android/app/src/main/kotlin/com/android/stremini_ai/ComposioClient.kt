@@ -104,14 +104,14 @@ class ComposioClient(
         /** Map of common user intents → Composio action IDs */
         val INTENT_ACTION_MAP = mapOf(
             "send_email"      to "GMAIL_SEND_EMAIL",
-            "read_email"      to "GMAIL_READ_EMAILS",
+            "read_email"      to "GMAIL_GET_EMAILS",
             "search_email"    to "GMAIL_SEARCH_EMAILS",
             "create_issue"    to "GITHUB_CREATE_AN_ISSUE",
             "create_repo"     to "GITHUB_CREATE_A_REPOSITORY",
             "list_repos"      to "GITHUB_LIST_REPOSITORIES_FOR_AUTHENTICATED_USER",
             "create_pr"       to "GITHUB_CREATE_A_PULL_REQUEST",
             "send_whatsapp"   to "WHATSAPP_SEND_MESSAGE",
-            "send_instagram"  to "INSTAGRAM_SEND_DM",
+            "send_instagram"  to "INSTAGRAM_SEND_TEXT_MESSAGE",
             "post_facebook"   to "FACEBOOK_CREATE_POST",
             "send_discord"    to "DISCORD_SEND_A_MESSAGE_TO_A_CHANNEL",
             "linkedin_post"   to "LINKEDIN_CREATE_A_POST",
@@ -316,7 +316,7 @@ class ComposioClient(
                     val slug = acct.optJSONObject("toolkit")?.optString("slug") ?: ""
                     val acctId = acct.optString("id")
                     val status = acct.optString("status")
-                    if (slug.isNotBlank() && (status == "ACTIVE" || status == "INITIALIZING" || status == "INITIATED") && acctId.isNotBlank()) {
+                    if (slug.isNotBlank() && status != "EXPIRED" && status != "FAILED" && status != "REVOKED" && acctId.isNotBlank()) {
                         result.getOrPut(slug) { mutableListOf() }.add(acctId)
                     }
                 }
@@ -363,7 +363,7 @@ class ComposioClient(
      */
     fun connectService(serviceId: String) {
         if (!isConfigured()) {
-            Toast.makeText(context, "Composio not configured.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Connectors not configured.", Toast.LENGTH_LONG).show()
             return
         }
         workScope.launch(Dispatchers.IO) {
@@ -447,7 +447,7 @@ class ComposioClient(
             } catch (e: Exception) {
                 Log.e(TAG, "Error initiating connection for $serviceId", e)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Connection failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Connection failed. Please try again.", Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -551,10 +551,9 @@ class ComposioClient(
     ): String {
         val apiKey = getDeveloperApiKey()
 
+        val userId = getStableUserId()
         val body = JSONObject().apply {
-            put("action_id", actionId)
             put("arguments", JSONObject(params))
-            val userId = getStableUserId()
             put("entity_id", userId)
             if (connectedAccountId.isNotBlank()) put("connected_account_id", connectedAccountId)
         }.toString().toRequestBody("application/json".toMediaType())
@@ -605,25 +604,21 @@ class ComposioClient(
                     ?: json.optJSONObject("data")
                     ?: json
                 // Check if the action was actually successful
-                val successful = resultData.optBoolean("successful", false)
-                    && resultData.optString("status") != "failed"
-                    && resultData.optString("status") != "FAILURE"
-                    && resultData.optString("error").isBlank()
+                val successful = json.optBoolean("successful", false)
                 if (!successful) {
-                    val errorMsg = resultData.optString("error")
-                        .ifBlank { resultData.optString("message") }
-                        .ifBlank { "Action failed on Composio's side" }
-                    error("Automation failed: $errorMsg")
+                    val errorMsg = json.optString("error", "")
+                        .ifBlank { "Action failed. Please try again." }
+                    error(errorMsg)
                 }
-                // Extract a clean success message
+                // Extract success data
+                val data = json.opt("data")
                 when {
-                    resultData.has("data") -> {
-                        val data = resultData.opt("data")
-                        if (data is String) data else resultData.toString().take(300)
-                    }
-                    resultData.has("message") -> resultData.optString("message")
-                    resultData.has("response") -> resultData.optString("response")
-                    resultData.has("output") -> resultData.optString("output")
+                    data is String -> data
+                    data is org.json.JSONObject && data.has("display_url") ->
+                        "Done! View it here: ${data.optString("display_url")}"
+                    data is org.json.JSONObject && data.has("id") ->
+                        "Done! ID: ${data.optString("id")}"
+                    data != null -> data.toString().take(300)
                     else -> "Action completed successfully."
                 }
             }
@@ -683,7 +678,7 @@ class ComposioClient(
         groqClient: GroqClient? = null
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            if (!isConfigured()) error("Automation not configured")
+            if (!isConfigured()) error("Connectors not configured")
 
             val connected = getConnectedServices()
 
@@ -866,15 +861,17 @@ Example multi-service: [{"serviceId":"gmail","serviceName":"Gmail","actionId":"G
         service: ServiceDef,
         groqClient: GroqClient
     ): Pair<String, Map<String, Any>>? {
-        val prompt = """You are an automation intent parser. Given a user request for ${service.name}, return a JSON object with exactly two fields:
-- "actionId": The most appropriate Composio action ID for ${service.name}. Common ones: ${INTENT_ACTION_MAP.values.filter { aid ->
+        val prompt = """You are an automation intent parser for ${service.name}. Given a user request, return a JSON object with exactly two fields:
+- "actionId": The tool slug for the action. Available tools for ${service.name}: ${INTENT_ACTION_MAP.values.filter { aid ->
     SERVICE_ACTION_PREFIX[service.id]?.let { prefix -> aid.startsWith(prefix) } ?: false
 }.joinToString(", ")}
-- "params": A flat key-value map of parameters needed for this action.
+- "params": A flat key-value map of parameters. Extract real values from the user's message (phone numbers, email addresses, usernames, message text). Do NOT use empty strings.
 
 User request: ${protectForAi(instruction, source = "automation request")}
 
-Return ONLY valid JSON, nothing else. Example: {"actionId":"GMAIL_SEND_EMAIL","params":{"to":"john@example.com","subject":"Hello","body":"Hi there"}}"""
+Return ONLY valid JSON. Example: {"actionId":"GMAIL_SEND_EMAIL","params":{"to":"john@example.com","subject":"Hello","body":"Hi there"}}
+For WhatsApp: {"actionId":"WHATSAPP_SEND_MESSAGE","params":{"to":"1234567890","message":"Hello"}}
+For Instagram: {"actionId":"INSTAGRAM_SEND_TEXT_MESSAGE","params":{"username":"john","message":"Hello"}}"""
 
         val response = groqClient.sendMessage(message = prompt, history = emptyList())
             .getOrDefault("")
@@ -943,7 +940,7 @@ Return ONLY valid JSON, nothing else. Example: {"actionId":"GMAIL_SEND_EMAIL","p
             "googledrive" -> "GOOGLE_DRIVE_UPLOAD_FILE" to mapOf("content" to instruction)
             "googlesheets" -> "GOOGLE_SHEETS_READ_SHEET" to mapOf("spreadsheetId" to "", "range" to "A1:Z100")
             "whatsapp" -> "WHATSAPP_SEND_MESSAGE" to mapOf("to" to "", "message" to instruction)
-            "instagram" -> "INSTAGRAM_SEND_DM" to mapOf("username" to "", "message" to instruction)
+            "instagram" -> "INSTAGRAM_SEND_TEXT_MESSAGE" to mapOf("username" to "", "message" to instruction)
             "facebook" -> "FACEBOOK_CREATE_POST" to mapOf("message" to instruction)
             "youtube" -> "YOUTUBE_UPLOAD_A_VIDEO" to mapOf("title" to instruction, "description" to "")
             else -> null
