@@ -11,6 +11,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -32,10 +34,12 @@ import java.net.URLEncoder
  * - The connected account is now available for automation.
  *
  * Endpoints (all use x-api-key header with the developer key):
- * - POST /api/v3/connected_accounts/link   → initiate connection (returns redirect URL)
- * - GET  /api/v3/connected_accounts         → list all connected accounts
- * - DELETE /api/v3/connected_accounts/{id}  → disconnect a specific account
- * - POST /api/v3.1/tools/execute/{slug}     → execute a tool on behalf of the user
+ * - POST /api/v3.1/sessions                 → create session for user
+ * - GET  /api/v3.1/sessions/{id}/toolkits   → list toolkits (shows connected status)
+ * - POST /api/v3.1/sessions/{id}/authorize  → generate Connect Link (returns redirect_url)
+ * - POST /api/v3.1/sessions/{id}/execute    → execute a tool on behalf of the user
+ * - DELETE /api/v3.1/connectedAccounts/{id} → disconnect a specific account (legacy)
+ * - DELETE /api/v3.1/sessions/{id}/toolkits/{slug} → session-based disconnect
  *
  * Get your developer key: https://composio.dev/settings → API Keys
  */
@@ -58,6 +62,7 @@ data class ServiceDef(
     val color: Long,
     val iconChar: String,
     val iconRes: Int,
+    val authConfigId: String = "",
 )
 
 class ComposioClient(
@@ -71,6 +76,7 @@ class ComposioClient(
     // work that leaked across Activity recreations.
     private val workScope: CoroutineScope =
         externalScope ?: CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val sessionMutex = Mutex()
 
     companion object {
         private const val TAG = "ComposioClient"
@@ -82,21 +88,17 @@ class ComposioClient(
         const val REDIRECT_URI = "stremini://composio"
 
         val ALL_SERVICES = listOf(
-            ServiceDef("github",       "GitHub",       listOf("github","repo","repository","commit","pull request","issue","branch"),           0xFF6e40c9, "G", R.drawable.logo_github),
-            ServiceDef("gmail",        "Gmail",        listOf("gmail","email","mail","send email","inbox","draft"),                               0xFFEA4335, "M", R.drawable.logo_gmail),
-            ServiceDef("telegram",     "Telegram",     listOf("telegram","tg","telegram message","telegram chat","telegram channel"),               0xFF0088cc, "T", R.drawable.logo_telegram),
-            ServiceDef("twitter",      "Twitter",      listOf("twitter","tweet","x.com","post tweet","timeline","retweet"),                         0xFF1DA1F2, "X", R.drawable.logo_twitter),
-            ServiceDef("instagram",    "Instagram",    listOf("instagram","ig","instagram story","instagram reel","instagram dm","instagram post"), 0xFFE4405F, "I", R.drawable.logo_instagram),
-            ServiceDef("facebook",     "Facebook",     listOf("facebook","fb","facebook post","facebook page","facebook group"),                      0xFF1877F2, "F", R.drawable.logo_facebook),
-            ServiceDef("whatsapp",     "WhatsApp",     listOf("whatsapp","wa","whats app","whatsapp message"),                                       0xFF25D366, "W", R.drawable.logo_whatsapp),
-            ServiceDef("googlechrome", "Chrome",       listOf("chrome","browser","open url","browse","search","tab"),                                 0xFF4285F4, "C", R.drawable.logo_chrome),
-            ServiceDef("googledrive",  "Google Drive", listOf("drive","google drive","upload","drive file","drive folder","share file"),               0xFF0F9D58, "D", R.drawable.logo_googledrive),
-            ServiceDef("discord",      "Discord",      listOf("discord","discord server","discord channel","discord dm","guild"),                      0xFF5865F2, "D", R.drawable.logo_discord),
-            ServiceDef("linkedin",     "LinkedIn",     listOf("linkedin","linkedin profile","linkedin connection","linkedin job","linkedin post"),      0xFF0A66C2, "L", R.drawable.logo_linkedin),
-            ServiceDef("reddit",       "Reddit",       listOf("reddit","subreddit","reddit post","upvote","comment","thread"),                        0xFFFF4500, "R", R.drawable.logo_reddit),
-            ServiceDef("googlesheets",  "Google Sheets",listOf("sheet","spreadsheet","google sheets","cell","row","column","table"),                  0xFF0F9D58, "S", R.drawable.logo_googlesheets),
-            ServiceDef("youtube",      "YouTube",      listOf("youtube","youtube video","youtube channel","upload video","youtube comment","subscribe","playlist","youtube shorts"), 0xFFFF0000, "Y", R.drawable.logo_youtube),
-            ServiceDef("tiktok",       "TikTok",       listOf("tiktok","tiktok video","tiktok post","tiktok dm","tiktok comment","tiktok account","duet"),              0xFF000000, "Tk", R.drawable.logo_tiktok),
+            ServiceDef("github",       "GitHub",       listOf("github","repo","repository","commit","pull request","issue","branch"),           0xFF6e40c9, "G", R.drawable.logo_github, "ac_YFSxski2H_Uj"),
+            ServiceDef("gmail",        "Gmail",        listOf("gmail","email","mail","send email","inbox","draft"),                               0xFFEA4335, "M", R.drawable.logo_gmail, "ac__21liBysL4x9"),
+            ServiceDef("instagram",    "Instagram",    listOf("instagram","ig","instagram story","instagram reel","instagram dm","instagram post"), 0xFFE4405F, "I", R.drawable.logo_instagram, "ac_V1hFeA4Iy2EF"),
+            ServiceDef("facebook",     "Facebook",     listOf("facebook","fb","facebook post","facebook page","facebook group"),                      0xFF1877F2, "F", R.drawable.logo_facebook, "ac_u1qeC8YT6l90"),
+            ServiceDef("whatsapp",     "WhatsApp",     listOf("whatsapp","wa","whats app","whatsapp message"),                                       0xFF25D366, "W", R.drawable.logo_whatsapp, "ac_412d-2RkonCA"),
+            ServiceDef("googledrive",  "Google Drive", listOf("drive","google drive","upload","drive file","drive folder","share file"),               0xFF0F9D58, "D", R.drawable.logo_googledrive, "ac_0_7ITaqzgnMC"),
+            ServiceDef("discord",      "Discord",      listOf("discord","discord server","discord channel","discord dm","guild"),                      0xFF5865F2, "D", R.drawable.logo_discord, "ac_Jh_gaZbL4nDx"),
+            ServiceDef("linkedin",     "LinkedIn",     listOf("linkedin","linkedin profile","linkedin connection","linkedin job","linkedin post"),      0xFF0A66C2, "L", R.drawable.logo_linkedin, "ac_zVwn7nQv2PQZ"),
+            ServiceDef("reddit",       "Reddit",       listOf("reddit","subreddit","reddit post","upvote","comment","thread"),                        0xFFFF4500, "R", R.drawable.logo_reddit, "ac_BNHdyMo8wNI9"),
+            ServiceDef("googlesheets",  "Google Sheets",listOf("sheet","spreadsheet","google sheets","cell","row","column","table"),                  0xFF0F9D58, "S", R.drawable.logo_googlesheets, "ac_iR7c2eb7ecrA"),
+            ServiceDef("youtube",      "YouTube",      listOf("youtube","youtube video","youtube channel","upload video","youtube comment","subscribe","playlist","youtube shorts"), 0xFFFF0000, "Y", R.drawable.logo_youtube, "ac_CF5aPWE_QIen"),
         )
 
         /** Map of common user intents → Composio action IDs */
@@ -108,8 +110,9 @@ class ComposioClient(
             "create_repo"     to "GITHUB_CREATE_A_REPOSITORY",
             "list_repos"      to "GITHUB_LIST_REPOSITORIES_FOR_AUTHENTICATED_USER",
             "create_pr"       to "GITHUB_CREATE_A_PULL_REQUEST",
-            "post_tweet"      to "TWITTER_CREATE_A_TWEET",
-            "get_timeline"    to "TWITTER_GET_USER_TIMELINE",
+            "send_whatsapp"   to "WHATSAPP_SEND_MESSAGE",
+            "send_instagram"  to "INSTAGRAM_SEND_DM",
+            "post_facebook"   to "FACEBOOK_CREATE_POST",
             "send_discord"    to "DISCORD_SEND_A_MESSAGE_TO_A_CHANNEL",
             "linkedin_post"   to "LINKEDIN_CREATE_A_POST",
             "reddit_post"     to "REDDIT_CREATE_A_POST",
@@ -119,7 +122,21 @@ class ComposioClient(
             "update_sheet"    to "GOOGLE_SHEETS_UPDATE_SHEET",
             "upload_youtube"  to "YOUTUBE_UPLOAD_A_VIDEO",
             "youtube_comment" to "YOUTUBE_ADD_COMMENT",
-            "tiktok_post"     to "TIKTOK_CREATE_A_VIDEO",
+        )
+
+        /** Map serviceId → action ID prefix for LLM prompt filtering */
+        val SERVICE_ACTION_PREFIX = mapOf(
+            "github" to "GITHUB",
+            "gmail" to "GMAIL",
+            "whatsapp" to "WHATSAPP",
+            "instagram" to "INSTAGRAM",
+            "facebook" to "FACEBOOK",
+            "googledrive" to "GOOGLE_DRIVE",
+            "discord" to "DISCORD",
+            "linkedin" to "LINKEDIN",
+            "reddit" to "REDDIT",
+            "googlesheets" to "GOOGLE_SHEETS",
+            "youtube" to "YOUTUBE",
         )
     }
 
@@ -250,7 +267,7 @@ class ComposioClient(
             val apiKey = getDeveloperApiKey()
             val client = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
             val request = Request.Builder()
-                .url("$COMPOSIO_API_BASE/sessions/$sessionId/toolkits")
+                .url("$COMPOSIO_API_BASE/connected_accounts")
                 .addHeader("x-api-key", apiKey)
                 .get()
                 .build()
@@ -276,16 +293,14 @@ class ComposioClient(
     }
 
     /**
-     * Get all connected services via session toolkits endpoint.
+     * Get all connected services via GET /api/v3/connected_accounts.
      */
     suspend fun getConnectedServices(): Map<String, List<String>> = withContext(Dispatchers.IO) {
         runCatching {
-            val sessionId = getOrCreateSession()
-            if (sessionId.isBlank()) return@withContext emptyMap<String, List<String>>()
             val apiKey = getDeveloperApiKey()
             val client = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
             val request = Request.Builder()
-                .url("$COMPOSIO_API_BASE/sessions/$sessionId/toolkits")
+                .url("$COMPOSIO_API_BASE/connected_accounts")
                 .addHeader("x-api-key", apiKey)
                 .get()
                 .build()
@@ -294,21 +309,15 @@ class ComposioClient(
                 handleSessionError(response.code)
                 val body = response.body?.string() ?: return@use emptyMap<String, List<String>>()
                 val json = JSONObject(body)
-                val toolkits = json.optJSONArray("items") ?: json.optJSONArray("toolkits") ?: json.optJSONArray("data")
+                val accounts = json.optJSONArray("items") ?: return@use emptyMap<String, List<String>>()
                 val result = mutableMapOf<String, MutableList<String>>()
-                if (toolkits != null) {
-                    for (i in 0 until toolkits.length()) {
-                        val tk = toolkits.optJSONObject(i) ?: continue
-                        val slug = tk.optString("slug")
-                        val isConnected = tk.optBoolean("is_connected", false)
-                            || tk.optString("status") == "connected"
-                            || !tk.optString("connected_account_id").isNullOrBlank()
-                        if (slug.isNotBlank() && isConnected) {
-                            // Store the real connected_account_id. If blank, use the slug
-                            // so disconnectService can identify which toolkit to disconnect.
-                            val acctId = tk.optString("connected_account_id", "")
-                            result[slug] = mutableListOf(if (acctId.isNotBlank()) acctId else slug)
-                        }
+                for (i in 0 until accounts.length()) {
+                    val acct = accounts.optJSONObject(i) ?: continue
+                    val slug = acct.optJSONObject("toolkit")?.optString("slug") ?: ""
+                    val acctId = acct.optString("id")
+                    val status = acct.optString("status")
+                    if (slug.isNotBlank() && (status == "ACTIVE" || status == "INITIALIZING" || status == "INITIATED") && acctId.isNotBlank()) {
+                        result.getOrPut(slug) { mutableListOf() }.add(acctId)
                     }
                 }
                 result
@@ -360,9 +369,20 @@ class ComposioClient(
         workScope.launch(Dispatchers.IO) {
             try {
                 val apiKey = getDeveloperApiKey()
+                val svc = ALL_SERVICES.find { it.id == serviceId }
+                val authConfigId = svc?.authConfigId ?: ""
+                if (authConfigId.isBlank()) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "This service does not support managed auth", Toast.LENGTH_LONG).show()
+                    }
+                    return@launch
+                }
+                val userId = getStableUserId()
                 val body = JSONObject().apply {
-                    put("serviceId", serviceId)
-                    put("redirectUri", REDIRECT_URI)
+                    put("auth_config_id", authConfigId)
+                    put("user_id", userId)
+                    // Don't pass redirect_uri — Composio uses its own default
+                    // which shows a success page the user can see in Chrome
                 }.toString().toRequestBody("application/json".toMediaType())
 
                 val request = Request.Builder()
@@ -375,30 +395,47 @@ class ComposioClient(
                 val client = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
                 client.newCall(request).execute().use { resp ->
                     val respBody = resp.body?.string() ?: "{}"
-                    // Check if response is HTML (404 page) — means wrong endpoint
-                    if (respBody.startsWith("<!DOCTYPE") || respBody.startsWith("<html")) {
-                        Log.e(TAG, "Got HTML instead of JSON: HTTP ${resp.code}")
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(context, "Composio API error. Check your API key.", Toast.LENGTH_LONG).show()
-                        }
-                        return@use
-                    }
                     val json = JSONObject(respBody)
-                    val authUrl = json.optString("redirectUrl")
-                        .ifBlank { json.optString("redirect_url") }
-                        .ifBlank { json.optString("url") }
-                        .ifBlank { json.optJSONObject("data")?.optString("redirectUrl") ?: "" }
+                    val authUrl = json.optString("redirect_url").ifBlank { json.optString("redirectUrl") }
                     if (authUrl.isNotBlank()) {
                         withContext(Dispatchers.Main) {
-                            val intent = Intent(context, ComposioAuthActivity::class.java).apply {
-                                putExtra(ComposioAuthActivity.EXTRA_AUTH_URL, authUrl)
-                                putExtra(ComposioAuthActivity.EXTRA_SERVICE_NAME,
-                                    ALL_SERVICES.find { it.id == serviceId }?.name ?: serviceId)
-                                putExtra(ComposioAuthActivity.EXTRA_SERVICE_ID, serviceId)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            // Use Chrome Custom Tabs — faster, has saved passwords, more reliable
+                            try {
+                                val chromeIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    setPackage("com.android.chrome")
+                                }
+                                context.startActivity(chromeIntent)
+                                // Poll for connection status — check every 3 seconds for up to 2 minutes
+                                workScope.launch {
+                                    var attempts = 0
+                                    while (attempts < 40) {
+                                        kotlinx.coroutines.delay(3000)
+                                        attempts++
+                                        val connected = isServiceConnected(serviceId)
+                                        if (connected) {
+                                            Log.i(TAG, "$serviceId connected after $attempts polls")
+                                            // Broadcast connection success to Dart
+                                            val intent = Intent("com.android.stremini_ai.SERVICE_DISCONNECTED").apply {
+                                                putExtra("event", "connection_success")
+                                                putExtra("serviceId", serviceId)
+                                            }
+                                            context.sendBroadcast(intent)
+                                            break
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                try {
+                                    val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(browserIntent)
+                                } catch (e2: Exception) {
+                                    Log.e(TAG, "Cannot open browser", e2)
+                                    Toast.makeText(context, "Cannot open browser. Please install Chrome.", Toast.LENGTH_LONG).show()
+                                }
                             }
-                            try { context.startActivity(intent) }
-                            catch (e: Exception) { Log.e(TAG, "Cannot start ComposioAuthActivity", e); openInCustomTab(authUrl) }
                         }
                     } else {
                         Log.e(TAG, "No auth URL in response: $respBody")
@@ -443,7 +480,7 @@ class ComposioClient(
                 val isRealAccountId = accountId.length > 20 || accountId.contains("-")
                 val request = if (isRealAccountId) {
                     Request.Builder()
-                        .url("$COMPOSIO_API_BASE/connectedAccounts/$accountId")
+                        .url("$COMPOSIO_API_BASE/connected_accounts/$accountId")
                         .addHeader("x-api-key", apiKey)
                         .delete()
                         .build()
@@ -515,8 +552,11 @@ class ComposioClient(
         val apiKey = getDeveloperApiKey()
 
         val body = JSONObject().apply {
+            put("action_id", actionId)
             put("arguments", JSONObject(params))
-            if (connectedAccountId.isNotBlank()) put("connectedAccountId", connectedAccountId)
+            val userId = getStableUserId()
+            put("entity_id", userId)
+            if (connectedAccountId.isNotBlank()) put("connected_account_id", connectedAccountId)
         }.toString().toRequestBody("application/json".toMediaType())
 
         val request = Request.Builder()
@@ -564,13 +604,28 @@ class ComposioClient(
                 val resultData = json.optJSONObject("result")
                     ?: json.optJSONObject("data")
                     ?: json
-                resultData.optString("message",
-                    resultData.optString("response",
-                        resultData.optString("output",
-                            if (resultData.length() > 0) resultData.toString().take(500) else "Done."
-                        )
-                    )
-                )
+                // Check if the action was actually successful
+                val successful = resultData.optBoolean("successful", false)
+                    && resultData.optString("status") != "failed"
+                    && resultData.optString("status") != "FAILURE"
+                    && resultData.optString("error").isBlank()
+                if (!successful) {
+                    val errorMsg = resultData.optString("error")
+                        .ifBlank { resultData.optString("message") }
+                        .ifBlank { "Action failed on Composio's side" }
+                    error("Automation failed: $errorMsg")
+                }
+                // Extract a clean success message
+                when {
+                    resultData.has("data") -> {
+                        val data = resultData.opt("data")
+                        if (data is String) data else resultData.toString().take(300)
+                    }
+                    resultData.has("message") -> resultData.optString("message")
+                    resultData.has("response") -> resultData.optString("response")
+                    resultData.has("output") -> resultData.optString("output")
+                    else -> "Action completed successfully."
+                }
             }
     }
 
@@ -690,6 +745,19 @@ class ComposioClient(
             val service = detectService(instruction)
                 ?: error("Couldn't detect which service to use. Try mentioning the service name.")
 
+            // ── AI Learning: check cache first ──────────────────────────
+            val cached = getCachedAutomation(instruction)
+            if (cached != null) {
+                val (cachedActionId, cachedParams) = cached
+                Log.i(TAG, "Automation cache HIT: $instruction → $cachedActionId")
+                val accountId = connected[service.id]?.firstOrNull()
+                    ?: error("${service.name} is not connected. Connect it first.")
+                return@runCatching executeAction(
+                    cachedActionId, cachedParams, accountId,
+                    serviceId = service.id
+                ).getOrThrow()
+            }
+
             val accountIds = connected[service.id]
             if (accountIds.isNullOrEmpty()) {
                 error("${service.name} is not connected. Tap the Automations button (plug icon) in the chat and connect ${service.name} first.")
@@ -707,7 +775,10 @@ class ComposioClient(
             }
 
             val (actionId, params) = actionParams
-            executeAction(actionId, params, accountId, serviceId = service.id).getOrThrow()
+            val result = executeAction(actionId, params, accountId, serviceId = service.id).getOrThrow()
+            // Cache this successful automation for instant repeat
+            cacheAutomationResult(instruction, actionId, params)
+            result
         }
     }
 
@@ -796,7 +867,9 @@ Example multi-service: [{"serviceId":"gmail","serviceName":"Gmail","actionId":"G
         groqClient: GroqClient
     ): Pair<String, Map<String, Any>>? {
         val prompt = """You are an automation intent parser. Given a user request for ${service.name}, return a JSON object with exactly two fields:
-- "actionId": The most appropriate Composio action ID for ${service.name}. Common ones: ${INTENT_ACTION_MAP.values.filter { it.startsWith(service.id.uppercase()) }.joinToString(", ")}
+- "actionId": The most appropriate Composio action ID for ${service.name}. Common ones: ${INTENT_ACTION_MAP.values.filter { aid ->
+    SERVICE_ACTION_PREFIX[service.id]?.let { prefix -> aid.startsWith(prefix) } ?: false
+}.joinToString(", ")}
 - "params": A flat key-value map of parameters needed for this action.
 
 User request: ${protectForAi(instruction, source = "automation request")}
@@ -869,6 +942,10 @@ Return ONLY valid JSON, nothing else. Example: {"actionId":"GMAIL_SEND_EMAIL","p
             "reddit" -> "REDDIT_CREATE_A_POST" to mapOf("title" to instruction, "text" to instruction)
             "googledrive" -> "GOOGLE_DRIVE_UPLOAD_FILE" to mapOf("content" to instruction)
             "googlesheets" -> "GOOGLE_SHEETS_READ_SHEET" to mapOf("spreadsheetId" to "", "range" to "A1:Z100")
+            "whatsapp" -> "WHATSAPP_SEND_MESSAGE" to mapOf("to" to "", "message" to instruction)
+            "instagram" -> "INSTAGRAM_SEND_DM" to mapOf("username" to "", "message" to instruction)
+            "facebook" -> "FACEBOOK_CREATE_POST" to mapOf("message" to instruction)
+            "youtube" -> "YOUTUBE_UPLOAD_A_VIDEO" to mapOf("title" to instruction, "description" to "")
             else -> null
         }
     }
@@ -893,5 +970,33 @@ Return ONLY valid JSON, nothing else. Example: {"actionId":"GMAIL_SEND_EMAIL","p
             }
         }
         return bestMatch
+    }
+
+    // ── AI Learning: cache successful automations ───────────────────
+    // Remembers instruction → (actionId, params) mappings so repeat
+    // commands skip the LLM parse step entirely (0ms vs 2-5s).
+
+    private fun cacheAutomationResult(instruction: String, actionId: String, params: Map<String, Any>) {
+        val key = "auto_cache_${instruction.lowercase().hashCode()}"
+        val json = JSONObject().apply {
+            put("actionId", actionId)
+            put("params", JSONObject(params))
+            put("instruction", instruction)
+            put("timestamp", System.currentTimeMillis())
+        }
+        prefs.putString(key, json.toString())
+    }
+
+    private fun getCachedAutomation(instruction: String): Pair<String, Map<String, Any>>? {
+        val key = "auto_cache_${instruction.lowercase().hashCode()}"
+        val raw = prefs.getString(key) ?: return null
+        return runCatching {
+            val json = JSONObject(raw)
+            val actionId = json.getString("actionId")
+            val paramsJson = json.optJSONObject("params") ?: JSONObject()
+            val params = mutableMapOf<String, Any>()
+            paramsJson.keys().forEach { k -> params[k] = paramsJson.get(k) }
+            Pair(actionId, params)
+        }.getOrNull()
     }
 }

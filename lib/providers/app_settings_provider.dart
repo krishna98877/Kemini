@@ -26,7 +26,7 @@ class AppSettings {
   factory AppSettings.defaults() => const AppSettings(
         notificationsEnabled: true,
                 hapticFeedback: false,
-        saveChatHistory: false,
+        saveChatHistory: true,
         theme: 'Dark',
         language: 'English',
         isLoaded: false,

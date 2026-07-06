@@ -38,7 +38,7 @@ android {
         val composioKey = props.getProperty("composio.consumer.key")
             ?.takeIf { it.isNotBlank() }
             ?: System.getenv("COMPOSIO_CONSUMER_KEY")?.takeIf { it.isNotBlank() }
-            ?: "ck__3OYxEWJkq1dabx3b3gi"
+            ?: "ak_SzJfcbrN14bZ1AHZLl18"
         buildConfigField("String", "COMPOSIO_CONSUMER_KEY", "\"$composioKey\"")
     }
 

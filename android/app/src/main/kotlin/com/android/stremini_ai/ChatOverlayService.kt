@@ -757,12 +757,12 @@ class ChatOverlayService : Service(), View.OnTouchListener {
             }
             addView(status)
 
-            // Click handler — assigned to the status button directly to avoid touch bubbling issues
-            status.isClickable = true
-            status.isFocusable = true
-            status.setOnClickListener {
+            // Click handler — entire cell is clickable (not just the button)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
                 if (status.text == "Connected") {
-                    // Optimistic UI update
+                    // Disconnect flow
                     status.text = "Disconnecting..."
                     status.setTextColor(Color.parseColor("#FFFFFF"))
                     status.background = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.btn_connect_blue)
@@ -770,7 +770,6 @@ class ChatOverlayService : Service(), View.OnTouchListener {
                     serviceScope.launch {
                         val success = composioClient.disconnectService(svc.id)
                         if (!success) {
-                            // Rollback — disconnect failed, service is still connected
                             serviceConnectionState[svc.id] = true
                             android.os.Handler(android.os.Looper.getMainLooper()).post {
                                 status.text = "Connected"
@@ -786,8 +785,13 @@ class ChatOverlayService : Service(), View.OnTouchListener {
                             Toast.makeText(this@ChatOverlayService, "${svc.name} disconnected", Toast.LENGTH_SHORT).show()
                         }
                     }
-                } else {
-                    // Open Composio managed auth in WebView
+                } else if (status.text != "Connecting..." && status.text != "Disconnecting...") {
+                    // Connect flow — show immediate feedback + close panel + open WebView
+                    status.text = "Connecting..."
+                    status.setTextColor(Color.parseColor("#FFFFFF"))
+                    // Close connectors panel immediately so WebView can open without delay
+                    hideConnectorsPanel()
+                    // Launch connect — ComposioAuthActivity opens automatically
                     composioClient.connectService(svc.id)
                 }
             }
@@ -887,14 +891,15 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         val chatView = floatingChatView ?: return
         val btn = chatView.findViewById<FrameLayout>(R.id.btn_connectors_toggle) ?: return
         val icon = btn.findViewById<ImageView>(R.id.connectors_toggle_icon)
-        val dot  = btn.findViewById<View>(R.id.connectors_active_dot)
-        val anyConnected = serviceConnectionState.values.any { it }
-        if (anyConnected) {
-            icon?.setColorFilter(CYAN)
-            dot?.visibility = View.VISIBLE
+        val badge = btn.findViewById<TextView>(R.id.connectors_active_dot)
+        val connectedCount = serviceConnectionState.values.count { it }
+        if (connectedCount > 0) {
+            icon?.setColorFilter(Color.parseColor("#3B82F6"))
+            badge?.visibility = View.VISIBLE
+            badge?.text = connectedCount.toString()
         } else {
-            icon?.setColorFilter(BORDER)
-            dot?.visibility = View.GONE
+            icon?.setColorFilter(Color.parseColor("#555555"))
+            badge?.visibility = View.GONE
         }
     }
 
