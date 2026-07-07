@@ -302,13 +302,47 @@ class ComposioClient(
     // ── Connected Accounts (via session toolkits) ───────────────────
 
     /**
-     * Check if a specific service has a connected account (via session toolkits).
+     * Check if the user has toggled [serviceId] ON in the connectors panel.
+     *
+     * Connectors default to OFF — the user must explicitly toggle one ON
+     * before the chatbot will route automation to it. This persists across
+     * app restarts via EncryptedPrefs so the toggle state survives.
+     *
+     * Returns true ONLY if:
+     * 1. The service has been explicitly toggled ON by the user, AND
+     * 2. The service is also connected (has an ACTIVE account).
+     */
+    suspend fun isConnectorActive(serviceId: String): Boolean {
+        val toggledOn = prefs.getString("connector_active_$serviceId")?.toBooleanStrictOrNull() ?: false
+        if (!toggledOn) return false
+        return isServiceConnected(serviceId)
+    }
+
+    /** Toggle a connector on/off. Called from the connectors panel UI. */
+    fun setConnectorActive(serviceId: String, active: Boolean) {
+        prefs.putString("connector_active_$serviceId", active.toString())
+        Log.i(TAG, "Connector $serviceId toggled: $active")
+    }
+
+    /**
+     * Check if a specific service has an ACTIVE connected account.
+     *
+     * Calls GET /api/v3/connected_accounts and looks for any account whose
+     * `toolkit.slug` matches [serviceId] AND whose `status` is "ACTIVE".
+     *
+     * BUG FIX (previous version was completely broken):
+     * - Old code checked `tk.optString("slug")` — but `slug` is nested under
+     *   `tk.toolkit.slug`, so the match never succeeded → always returned false.
+     * - Old code also checked `tk.optString("status") == "connected"` — but
+     *   Composio returns "ACTIVE" (uppercase), not "connected".
+     * - Old code checked `tk.optString("connected_account_id")` — but the
+     *   field is just `id`, not `connected_account_id`.
+     * Net effect: chatbot NEVER routed to automation. Now fixed.
      */
     suspend fun isServiceConnected(serviceId: String): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            val sessionId = getOrCreateSession()
-            if (sessionId.isBlank()) return@withContext false
             val apiKey = getDeveloperApiKey()
+            if (apiKey.isBlank()) return@withContext false
             val client = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
             val request = Request.Builder()
                 .url("$COMPOSIO_API_BASE/connected_accounts")
@@ -320,15 +354,22 @@ class ComposioClient(
                 handleSessionError(response.code)
                 val body = response.body?.string() ?: return@use false
                 val json = JSONObject(body)
-                val toolkits = json.optJSONArray("items") ?: json.optJSONArray("toolkits") ?: json.optJSONArray("data")
-                if (toolkits != null) {
-                    for (i in 0 until toolkits.length()) {
-                        val tk = toolkits.optJSONObject(i) ?: continue
-                        if (tk.optString("slug") == serviceId) {
-                            return@use tk.optBoolean("is_connected", false)
-                                || tk.optString("status") == "connected"
-                                || !tk.optString("connected_account_id").isNullOrBlank()
+                val accounts = json.optJSONArray("items") ?: return@use false
+                for (i in 0 until accounts.length()) {
+                    val acct = accounts.optJSONObject(i) ?: continue
+                    // slug is nested under "toolkit", not at top level
+                    val slug = acct.optJSONObject("toolkit")?.optString("slug") ?: ""
+                    val status = acct.optString("status")
+                    val acctId = acct.optString("id")
+                    if (slug == serviceId &&
+                        status == "ACTIVE" &&
+                        acctId.isNotBlank()) {
+                        // Cache the user_id for execute requests
+                        val acctUserId = acct.optString("user_id", "")
+                        if (acctUserId.isNotBlank()) {
+                            prefs.putString("composio_connected_user_id", acctUserId)
                         }
+                        return@use true
                     }
                 }
                 false
@@ -1218,6 +1259,7 @@ Return ONLY valid JSON (no markdown, no explanation):
                 // 1) Accept any of {to, to_number, recipient, phone} → to_number
                 val rawTo = p.remove("to")?.toString()
                     ?: p.remove("recipient")?.toString()
+                    ?: p.remove("phone")?.toString()
                     ?: p["to_number"]?.toString()
                     ?: ""
                 // 2) Accept any of {message, text, body, content} → text
@@ -1226,16 +1268,21 @@ Return ONLY valid JSON (no markdown, no explanation):
                     ?: p.remove("content")?.toString()
                     ?: p["text"]?.toString()
                     ?: ""
-                // 3) Resolve name → phone number
+                // 3) Resolve name → phone number (if not already a number)
                 val isPhoneNumber = rawTo.matches(Regex("^\\+?[0-9]{6,15}$"))
-                val finalNumber = if (isPhoneNumber) rawTo else {
+                val resolved = if (isPhoneNumber) rawTo else {
                     resolveContact(rawTo)?.also {
                         Log.i(TAG, "WhatsApp contact resolved: $rawTo -> $it")
                     } ?: rawTo
                 }
+                // 4) CRITICAL: Composio's WhatsApp API rejects the leading "+".
+                //    "Invalid phone number. Make sure it is a number and includes
+                //    the country code without the + sign."
+                //    Strip any leading + so e.g. +917078461157 → 917078461157.
+                val finalNumber = resolved.removePrefix("+").replace(Regex("[^0-9]"), "")
                 p["to_number"] = finalNumber
                 p["text"] = rawText
-                // 4) ALWAYS inject phone_number_id — without it, Composio
+                // 5) ALWAYS inject phone_number_id — without it, Composio
                 //    silently accepts but never delivers the message.
                 if (p["phone_number_id"]?.toString().isNullOrBlank()) {
                     p["phone_number_id"] = WHATSAPP_PHONE_NUMBER_ID

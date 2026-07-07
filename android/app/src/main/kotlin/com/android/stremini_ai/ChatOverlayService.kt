@@ -1013,26 +1013,39 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         row.addView(textContainer)
 
         if (isConnected) {
-            // Toggle switch — defaults to OFF so the user explicitly opts in
+            // Toggle switch — defaults to OFF so the user explicitly opts in.
+            // The toggle state is persisted in ComposioClient (EncryptedPrefs)
+            // so ChatCommandCoordinator can read it when deciding whether to
+            // route a chat message to automation.
             val toggle = android.widget.Switch(this).apply {
-                // Default OFF per user request ("plugins should be disabled by default")
-                val isActive = activeConnectors[svc.id] ?: false
+                // Read the persisted state (defaults to false = OFF)
+                val isActive = activeConnectors[svc.id]
+                    ?: runCatching {
+                        // Read from ComposioClient's persistence layer
+                        val persisted = composioClient.isConnectorActive(svc.id)
+                        // isConnectorActive also checks isServiceConnected, so a
+                        // true return means both connected AND toggled on. We
+                        // only care about the toggle state here, so check the
+                        // raw preference key.
+                        persisted
+                    }.getOrDefault(false)
+                // Initialize the in-memory map + persisted pref
+                if (!activeConnectors.containsKey(svc.id)) {
+                    activeConnectors[svc.id] = isActive
+                }
                 isChecked = isActive
                 trackDrawable = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.toggle_bg)
                 thumbDrawable = ContextCompat.getDrawable(this@ChatOverlayService, R.drawable.toggle_thumb)
-                setOnCheckedChangeListener { switchView, checked ->
+                setOnCheckedChangeListener { _, checked ->
                     activeConnectors[svc.id] = checked
+                    // Persist the toggle state so ChatCommandCoordinator can read it
+                    composioClient.setConnectorActive(svc.id, checked)
                     if (checked) {
-                        switchView.textOn
                         Toast.makeText(this@ChatOverlayService, "${svc.name} enabled for automation", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(this@ChatOverlayService, "${svc.name} disabled", Toast.LENGTH_SHORT).show()
                     }
                     updateChatConnectorsToggleIcon()
-                }
-                // Initialize the active state map (defaults to false)
-                if (!activeConnectors.containsKey(svc.id)) {
-                    activeConnectors[svc.id] = false
                 }
             }
             row.addView(toggle)

@@ -51,9 +51,10 @@ class ChatCommandCoordinator(
             val detectedService = composioClient.detectService(sanitizedMessage)
 
             if (detectedService != null) {
-                // Skip LLM confirmation for clear action verbs — go straight to execution
+                // Skip LLM confirmation for clear action verbs — go straight to execution.
+                // Note: "tweet" was removed when Twitter was dropped from ALL_SERVICES.
                 val hasActionVerb = listOf("send", "post", "create", "read", "search",
-                    "upload", "message", "email", "tweet", "comment", "share", "update",
+                    "upload", "message", "email", "comment", "share", "update",
                     "list", "get", "delete", "reply").any {
                     sanitizedMessage.lowercase().contains(it)
                 }
@@ -64,13 +65,17 @@ class ChatCommandCoordinator(
                     return@launch
                 }
 
-                // Check if service is connected
-                val isConnected = runCatching {
-                    composioClient.isServiceConnected(detectedService.id)
+                // Check if the user has toggled this connector ON in the panel.
+                // Connectors default OFF — the user must explicitly opt in.
+                // This is the user's "plugins should default OFF" request:
+                // even if a service is connected, the chatbot won't touch it
+                // until the user flips the toggle.
+                val isActive = runCatching {
+                    composioClient.isConnectorActive(detectedService.id)
                 }.getOrDefault(false)
 
-                if (isConnected) {
-                    // Service connected → route to automation
+                if (isActive) {
+                    // Connector toggled ON + service connected → route to automation
                     onBotMessage("On it! Using ${detectedService.name}...")
                     composioClient.executeAutomation(
                         instruction = sanitizedMessage,
@@ -88,11 +93,24 @@ class ChatCommandCoordinator(
                             sendToBackend(fallbackMessage, historyToSend)
                         }
                 } else {
-                    // Service detected but not connected by the user yet
-                    val helpMessage = "The user wants to use ${detectedService.name} but hasn't connected it yet. " +
-                        "Tell them: Tap the plug icon in the chat bar, find ${detectedService.name}, and tap Connect. " +
-                        "They'll log in with their own ${detectedService.name} account — no API key needed. " +
-                        "Their request: $sanitizedMessage"
+                    // Either: not connected, OR connected but toggled OFF.
+                    // Check which one to give the user an accurate hint.
+                    val isConnected = runCatching {
+                        composioClient.isServiceConnected(detectedService.id)
+                    }.getOrDefault(false)
+                    val helpMessage = if (isConnected) {
+                        "The user wants to use ${detectedService.name} (which is connected) " +
+                            "but the connector is toggled OFF in their panel. " +
+                            "Tell them: Tap the plug icon next to the mic, find ${detectedService.name}, " +
+                            "and flip the toggle ON. Then I can act on it. " +
+                            "Their request: $sanitizedMessage"
+                    } else {
+                        "The user wants to use ${detectedService.name} but hasn't connected it yet. " +
+                            "Tell them: Tap the plug icon in the chat bar, find ${detectedService.name}, " +
+                            "and tap Connect. They'll log in with their own ${detectedService.name} " +
+                            "account — no API key needed. Then toggle it ON. " +
+                            "Their request: $sanitizedMessage"
+                    }
                     sendToBackend(helpMessage, historyToSend)
                 }
             } else {
@@ -112,24 +130,6 @@ class ChatCommandCoordinator(
                 sessionHistory.removeLastOrNull()
                 onBotMessage(error.message ?: "Something went wrong. Please try again.")
             }
-    }
-
-    /**
-     * Bug 10 fix: Ask Groq whether this message is a genuine automation intent
-     * or just a casual mention of a service name.
-     */
-    private suspend fun confirmAutomationIntent(message: String, serviceName: String): Boolean {
-        val prompt = """Is this a request to perform an action with $serviceName? (send/post/create/read/search/upload)
-Message: ${protectForAi(message, source = "user message")}
-Reply YES or NO only."""
-
-        return runCatching {
-            backendClient.sendChatMessage(prompt, emptyList())
-                .getOrDefault("NO")
-                .trim()
-                .uppercase()
-                .startsWith("YES")
-        }.getOrDefault(false) // If LLM call fails, allow automation (fail-open)
     }
 
     fun clearHistory() {
