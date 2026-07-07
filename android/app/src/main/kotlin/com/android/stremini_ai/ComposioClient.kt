@@ -20,7 +20,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.URLEncoder
 
 /**
  * Composio Managed Authentication client.
@@ -63,8 +62,6 @@ data class ServiceDef(
     val color: Long,
     val iconChar: String,
     val iconRes: Int,
-    val authConfigId: String = "",
-    val needsCustomAuth: Boolean = false,
 )
 
 class ComposioClient(
@@ -84,7 +81,6 @@ class ComposioClient(
         private const val TAG = "ComposioClient"
         const val COMPOSIO_API_BASE = "https://backend.composio.dev/api/v3"
         const val COMPOSIO_TOOLS_API_BASE = "https://backend.composio.dev/api/v3.1"
-        const val COMPOSIO_CONNECT_BASE = "https://connect.composio.dev"
 
         /** Deep-link scheme for OAuth callback */
         const val REDIRECT_URI = "stremini://composio"
@@ -188,7 +184,6 @@ class ComposioClient(
     }
 
     private val prefs = EncryptedPrefs.getEncrypted(context, "composio_prefs")
-    private val userPrefs = EncryptedPrefs.getEncrypted(context, "stremini_prefs")
 
     // ── Fix S2: Clean up stale pending-connect nonces on client creation ──
     // If the app was killed mid-OAuth, the nonce lingers in prefs. Clear
@@ -336,11 +331,6 @@ class ComposioClient(
         }
     }
 
-    /** Clear the cached session ID (forces a new session on next call). */
-    fun clearSession() {
-        prefs.remove("composio_session_id")
-    }
-
     private fun getStableUserId(): String {
         val cached = prefs.getString("composio_user_id")
         if (!cached.isNullOrBlank()) return cached
@@ -444,12 +434,6 @@ class ComposioClient(
             Log.i(TAG, "Pending connect validated for $serviceId (age=${age}ms)")
             true
         }.getOrDefault(false)
-    }
-
-    /** Clear all pending connects (e.g. on app startup to clean up stale ones). */
-    fun clearAllPendingConnects() {
-        val keys = prefs.allKeys().filter { it.startsWith("pending_connect_") }
-        keys.forEach { prefs.remove(it) }
     }
 
     /**
@@ -672,10 +656,10 @@ class ComposioClient(
                 val apiKey = getDeveloperApiKey()
                 val svc = ALL_SERVICES.find { it.id == serviceId }
                 val authConfigId = authConfigFor(serviceId)
-                if (authConfigId.isBlank() || svc?.needsCustomAuth == true) {
-                    // For services without managed auth, create a custom auth config
-                    // with the user's own credentials via the connect link flow.
-                    // Composio will prompt the user to enter their credentials.
+                if (authConfigId.isBlank()) {
+                    // No auth_config_id configured for this service in local.properties.
+                    // Try creating a custom auth config with the user's own credentials
+                    // via the connect link flow.
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, "Connecting to ${svc?.name ?: serviceId}...", Toast.LENGTH_SHORT).show()
                     }
@@ -817,17 +801,6 @@ class ComposioClient(
                     Toast.makeText(context, "Connection failed. Please try again.", Toast.LENGTH_LONG).show()
                 }
             }
-        }
-    }
-
-    private fun openInCustomTab(url: String) {
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            Toast.makeText(context, "Could not open connection page.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1203,8 +1176,8 @@ class ComposioClient(
      *
      * The LLM already tags dependencies via `_dependsOnPreviousStep: true`
      * in the planned params, but the old executor ignored it and ran every
-     * step one-after-another. For independent steps (e.g. "post to Twitter
-     * AND send a Discord message"), concurrent execution cuts total latency
+     * step one-after-another. For independent steps (e.g. "send a Gmail
+     * AND post to Discord"), concurrent execution cuts total latency
      * from N×stepTime to ~1×stepTime.
      */
     private suspend fun executeMultiStepChain(
@@ -1478,7 +1451,6 @@ Return ONLY valid JSON (no markdown, no explanation):
                 )
                 else -> "GITHUB_LIST_REPOSITORIES_FOR_AUTHENTICATED_USER" to emptyMap()
             }
-            "twitter" -> null  // removed from ALL_SERVICES (no managed auth)
             "discord" -> "DISCORD_SEND_A_MESSAGE_TO_A_CHANNEL" to mapOf("content" to instruction)
             "linkedin" -> "LINKEDIN_CREATE_A_POST" to mapOf("text" to instruction)
             "reddit" -> "REDDIT_CREATE_A_POST" to mapOf("title" to instruction, "text" to instruction)
@@ -1500,8 +1472,6 @@ Return ONLY valid JSON (no markdown, no explanation):
             "instagram" -> "INSTAGRAM_SEND_TEXT_MESSAGE" to mapOf("recipient_id" to INSTAGRAM_DEFAULT_PSID, "text" to instruction)
             "facebook" -> "FACEBOOK_CREATE_POST" to mapOf("message" to instruction)
             "youtube" -> "YOUTUBE_UPLOAD_A_VIDEO" to mapOf("title" to instruction, "description" to "")
-            "telegram" -> null  // removed from ALL_SERVICES (no managed auth)
-            "tiktok" -> null    // removed from ALL_SERVICES (no managed auth)
             else -> null
         }
     }

@@ -131,8 +131,4 @@ class ChatCommandCoordinator(
                 onBotMessage(error.message ?: "Something went wrong. Please try again.")
             }
     }
-
-    fun clearHistory() {
-        sessionHistory.clear()
-    }
 }

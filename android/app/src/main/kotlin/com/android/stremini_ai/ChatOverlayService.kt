@@ -3,8 +3,6 @@ package com.android.stremini_ai
 import com.android.stremini_ai.ServiceDef
 
 import android.Manifest
-import android.animation.Animator
-import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -105,17 +103,13 @@ class ChatOverlayService : Service(), View.OnTouchListener {
     private var bubbleScreenY = 0
 
     private var isMenuAnimating       = false
-    private var windowAnimator:       ValueAnimator? = null
     private var isWindowResizing      = false
     private var preventPositionUpdates= false
 
     private var idleRunnable: Runnable? = null
     private val idleHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var isBubbleIdle     = false
-    private var idleAnimator:    ValueAnimator? = null
-    private var preIdleX         = 0
     private val IDLE_TIMEOUT_MS  = 3000L
-    private val IDLE_SCALE       = 1f      // no size change on idle (prevents tap jitter)
     private val IDLE_ALPHA       = 0.5f    // just dim when idle
     private val IDLE_ANIM_DURATION = 400L
 
@@ -137,7 +131,6 @@ class ChatOverlayService : Service(), View.OnTouchListener {
     // Connectors panel
     private var connectorsView: View? = null
     private var isConnectorsVisible = false
-    private var isConnectorsActive = false
 
     private val controlReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -444,39 +437,6 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         }, 120)
     }
 
-    private fun animateWindowSize(fromSize: Float, toSize: Float, duration: Long = 200L, onEnd: (() -> Unit)? = null) {
-        // Retained for compatibility but no longer used by expand/collapse.
-        // The new expand/collapse set the final size immediately to avoid
-        // the per-frame windowManager.updateViewLayout jitter.
-        windowAnimator?.cancel()
-        isWindowResizing = true; preventPositionUpdates = true
-        val fromHalf = fromSize / 2f; val toHalf = toSize / 2f
-        val startX   = bubbleScreenX - fromHalf; val endX = bubbleScreenX - toHalf
-        val startY   = bubbleScreenY - fromHalf; val endY = bubbleScreenY - toHalf
-        windowAnimator = ValueAnimator.ofFloat(fromSize, toSize).apply {
-            this.duration = duration; interpolator = DecelerateInterpolator()
-            addUpdateListener { animator ->
-                val newSize = animator.animatedValue as Float
-                val frac    = if (toSize != fromSize) (newSize - fromSize) / (toSize - fromSize) else 1f
-                params.width  = newSize.toInt(); params.height = newSize.toInt()
-                params.x = (startX + (endX - startX) * frac).toInt()
-                params.y = (startY + (endY - startY) * frac).toInt()
-                try { windowManager.updateViewLayout(overlayView, params) } catch (_: Exception) {}
-            }
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    windowAnimator = null; isWindowResizing = false; preventPositionUpdates = false
-                    params.width  = toSize.toInt(); params.height = toSize.toInt()
-                    params.x = (bubbleScreenX - toHalf).toInt()
-                    params.y = (bubbleScreenY - toHalf).toInt()
-                    try { windowManager.updateViewLayout(overlayView, params) } catch (_: Exception) {}
-                    onEnd?.invoke()
-                }
-            })
-            start()
-        }
-    }
-
     private var snapAttempts = 0
     private fun snapToEdge() {
         if (isWindowResizing || preventPositionUpdates || isMenuAnimating) {
@@ -597,7 +557,6 @@ class ChatOverlayService : Service(), View.OnTouchListener {
             ?.setInterpolator(DecelerateInterpolator())
             ?.start()
 
-        isConnectorsActive = false
         updateConnectorsToggleIcon()
     }
 
@@ -813,7 +772,6 @@ class ChatOverlayService : Service(), View.OnTouchListener {
     private fun hideConnectorsPanel() {
         if (!isConnectorsVisible) return
         isConnectorsVisible = false
-        isConnectorsActive = false
         // Slide-down + fade-out (Manus-style bottom sheet exit transition)
         connectorsView?.animate()
             ?.alpha(0f)

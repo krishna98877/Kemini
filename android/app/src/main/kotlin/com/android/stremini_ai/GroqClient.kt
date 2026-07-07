@@ -28,7 +28,7 @@ class GroqClient(context: Context) {
         /** System prompt — Stremini AI persona with Composio awareness */
         private const val SYSTEM_PROMPT = """You are Stremini AI, a fast, helpful assistant built into a keyboard app.
 
-You have automation capabilities. When a user mentions a service (Gmail, WhatsApp, Instagram, GitHub, Discord, LinkedIn, Reddit, YouTube, Google Drive, Google Sheets, Telegram, Twitter, Facebook, TikTok) with an action verb (send, post, create, read, search), acknowledge briefly and the system will execute it automatically.
+You have automation capabilities. When a user mentions a service (Gmail, WhatsApp, Instagram, GitHub, Discord, LinkedIn, Reddit, YouTube, Google Drive, Google Sheets, Facebook) with an action verb (send, post, create, read, search), acknowledge briefly and the system will execute it automatically.
 
 Rules:
 - Be CONCISE. Maximum 2-3 sentences. Users are on mobile.
@@ -58,11 +58,6 @@ Rules:
 
     /** Secure HTTP client with rate limiting and trusted-host enforcement */
     // Calls are made via secureHttpClient() per-request to respect useCase routing
-
-    /** Store the Groq API key */
-    fun setApiKey(key: String) {
-        prefs.putString("groq_api_key", key)
-    }
 
     /** Get the stored Groq API key, falling back to the BuildConfig-injected key if none set. */
     fun getApiKey(): String? {

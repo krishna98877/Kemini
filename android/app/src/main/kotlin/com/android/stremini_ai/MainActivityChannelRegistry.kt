@@ -4,7 +4,6 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivityChannelRegistry(
@@ -23,13 +22,9 @@ class MainActivityChannelRegistry(
         val showKeyboardPicker: () -> Unit,
         val openKeyboardSettingsActivity: () -> Unit,
         val openUrl: (String) -> Unit,
-        val setEventSink: (EventChannel.EventSink?) -> Unit,
         // Composio MCP
         val openComposioConnect: () -> Unit,
-        val getComposioToken: () -> String?,
-        val saveComposioToken: (String) -> Unit,
         val isComposioConnected: () -> Boolean,
-        val getComposioMcpUrl: () -> String,
         // Composio service management
         val connectComposioService: (String) -> Unit,
         val disconnectComposioService: (String) -> Unit,
@@ -42,11 +37,6 @@ class MainActivityChannelRegistry(
         registerOverlayChannel(flutterEngine)
         registerKeyboardChannel(flutterEngine)
         registerComposioChannel(flutterEngine)
-        // NOTE: The dead `stremini.chat.overlay/events` EventChannel was removed —
-        // it shared the same `setEventSink` callback as the active
-        // `stremini.composio/events` channel in MainActivity, causing the second
-        // listener to clobber the first's sink. Dart only listens to
-        // `stremini.composio/events`.
     }
 
     private fun registerOverlayChannel(flutterEngine: FlutterEngine) {
@@ -103,18 +93,7 @@ class MainActivityChannelRegistry(
                         actions.openComposioConnect()
                         result.success(true)
                     }
-                    "getComposioToken" -> result.success(actions.getComposioToken())
-                    "saveComposioToken" -> {
-                        val token = call.argument<String>("token")
-                        if (token.isNullOrBlank()) {
-                            result.error("INVALID", "Token is required", null)
-                        } else {
-                            actions.saveComposioToken(token)
-                            result.success(true)
-                        }
-                    }
                     "isComposioConnected" -> result.success(actions.isComposioConnected())
-                    "getComposioMcpUrl" -> result.success(actions.getComposioMcpUrl())
                     "connectComposioService" -> {
                         val serviceId = call.argument<String>("serviceId") ?: ""
                         actions.connectComposioService(serviceId)

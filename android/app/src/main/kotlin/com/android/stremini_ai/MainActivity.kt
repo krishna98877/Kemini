@@ -180,11 +180,7 @@ class MainActivity : FlutterActivity() {
                 },
                 openUrl = ::openUrl,
                 openComposioConnect = ::openComposioConnect,
-                getComposioToken = ::getComposioToken,
-                saveComposioToken = ::saveComposioToken,
                 isComposioConnected = ::isComposioConnected,
-                getComposioMcpUrl = ::getComposioMcpUrl,
-                setEventSink = { sink -> _composioEventSink = sink },
                 // Composio service management
                 connectComposioService = { serviceId -> composioClient.connectService(serviceId) },
                 disconnectComposioService = { serviceId ->
@@ -323,13 +319,7 @@ class MainActivity : FlutterActivity() {
     /** Always true — consumer key is embedded */
     private fun isComposioConnected(): Boolean = composioClient.isConfigured()
 
-    /** Get the saved user token from encrypted prefs */
-    private fun getComposioToken(): String? {
-        val prefs = EncryptedPrefs.getEncrypted(this, "stremini_prefs")
-        return prefs.getString("composio_token", null)
-    }
-
-    /** Save the user token to encrypted prefs */
+    /** Save the user token to encrypted prefs (called from exchangeCodeForToken) */
     private fun saveComposioToken(token: String) {
         val prefs = EncryptedPrefs.getEncrypted(this, "stremini_prefs")
         prefs.putString("composio_token", token)
@@ -354,9 +344,6 @@ class MainActivity : FlutterActivity() {
             Log.e(TAG, "Failed to open URL: $url", e)
         }
     }
-
-    /** MCP URL constant */
-    private fun getComposioMcpUrl(): String = "https://connect.composio.dev/mcp"
 
     // ── Permission helpers ──────────────────────────────────────────────────
 
