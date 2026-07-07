@@ -274,7 +274,17 @@ class ComposioAuthActivity : AppCompatActivity() {
                 val error = uri.getQueryParameter("error") ?: "Connection failed"
                 showError(error)
             } else {
-                showSuccess()
+                // ── Fix S3: ambiguous redirect — DON'T default to success ──
+                // The old code called showSuccess() here for ANY stremini://composio
+                // hit that wasn't explicitly error/failed — including cancelled
+                // or ambiguous OAuth results. This gave the user a false green
+                // checkmark even when the connection didn't actually succeed.
+                //
+                // Fix: verify with the real Composio API. Only show success if
+                // isServiceConnected() confirms an ACTIVE account exists.
+                // Otherwise show a neutral "verification pending" state and
+                // let MainActivity's refresh handle the final status.
+                verifyConnectionAndShowResult()
             }
             return true  // Don't load the deep-link URL in WebView
         }
@@ -296,6 +306,50 @@ class ComposioAuthActivity : AppCompatActivity() {
         }
 
         return false  // Let all other URLs load normally in the WebView
+    }
+
+    /**
+     * Fix S3: Verify the connection via the real Composio API before showing
+     * a success/failure result. Only shows the green checkmark if the server
+     * confirms an ACTIVE account; otherwise shows a neutral message and
+     * defers to MainActivity's cache refresh for the final state.
+     */
+    private fun verifyConnectionAndShowResult() {
+        lifecycleScope.launch {
+            try {
+                val client = ComposioClient(this@ComposioAuthActivity)
+                val connected = client.isServiceConnected(serviceId)
+                if (connected) {
+                    showSuccess()
+                } else {
+                    // Don't show a hard error — the connection might still be
+                    // propagating on Composio's side. Show a neutral "please
+                    // wait" message and let the user check the panel later.
+                    runOnUiThread {
+                        statusIcon.text = "\u23F3"  // hourglass
+                        statusIcon.setTextColor(Color.parseColor("#F59E0B"))
+                        statusText.text = "Verifying connection\u2026"
+                        successOverlay.visibility = View.VISIBLE
+                        webView.visibility = View.GONE
+                        progressBar.visibility = View.GONE
+                    }
+                    // Re-check after 3 seconds
+                    webView.postDelayed({
+                        lifecycleScope.launch {
+                            val connected2 = client.isServiceConnected(serviceId)
+                            if (connected2) {
+                                showSuccess()
+                            } else {
+                                showError("Connection could not be verified. Please try again.")
+                            }
+                        }
+                    }, 3000)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Connection verification failed", e)
+                showError("Could not verify connection. Please check your network and try again.")
+            }
+        }
     }
 
     private fun showSuccess() {

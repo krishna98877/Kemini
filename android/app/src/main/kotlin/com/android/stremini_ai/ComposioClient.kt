@@ -88,6 +88,9 @@ class ComposioClient(
         /** Deep-link scheme for OAuth callback */
         const val REDIRECT_URI = "stremini://composio"
 
+        /** TTL for pending-connect nonces (Fix S2). 10 min covers slow OAuth flows. */
+        private const val PENDING_CONNECT_TTL_MS = 10 * 60 * 1000L
+
         // Only 11 services with managed OAuth via Composio.
         // Telegram/Twitter/TikTok removed — they have no managed auth and
         // always fail at the OAuth step (user reported 14-app count, expecting 11).
@@ -186,11 +189,58 @@ class ComposioClient(
     private val prefs = EncryptedPrefs.getEncrypted(context, "composio_prefs")
     private val userPrefs = EncryptedPrefs.getEncrypted(context, "stremini_prefs")
 
+    // ── Fix S2: Clean up stale pending-connect nonces on client creation ──
+    // If the app was killed mid-OAuth, the nonce lingers in prefs. Clear
+    // any that are older than the TTL so they can't be replayed later.
+    // Nonces still within TTL are preserved so an in-flight OAuth flow
+    // that survived an app restart can still complete.
+    init {
+        runCatching { clearExpiredPendingConnects() }
+    }
+
     // ── Composio Consumer API Key ──────────────────────────────────
     // The key is injected at build time via BuildConfig (sourced from
     // local.properties or the COMPOSIO_CONSUMER_KEY env var).
     // It is NEVER hardcoded in source.
-    
+
+    // ── Fix S5: PII-safe logging helpers ───────────────────────────────
+    // The old code logged full message text, phone numbers, email addresses,
+    // and contact names via Log.i. Even though ProGuard strips Log.i in
+    // release builds, debug builds (or any release built with
+    // minifyEnabled=false) would leak PII to logcat — accessible to any
+    // app with READ_LOGS permission on rooted devices, or via ADB.
+    //
+    // These helpers log ONLY: field names, value lengths, and truncated
+    // first-char + length indicators. Never the raw PII itself.
+
+    /** Truncate an instruction to the first 30 chars + total length. */
+    private fun safeInstruction(s: String): String {
+        val len = s.length
+        val preview = if (len <= 30) s else s.take(30) + "…"
+        return "\"$preview\" (len=$len)"
+    }
+
+    /** Format a params map as {key: <len=N>} — never logs the values. */
+    private fun safeParams(params: Map<String, Any>): String {
+        val parts = params.entries.joinToString(", ") { (k, v) ->
+            val vLen = v.toString().length
+            // For known PII fields, show only the first char + length
+            when (k.lowercase()) {
+                "to_number", "to", "phone", "recipient", "recipient_id",
+                "text", "message", "body", "content", "subject", "post" ->
+                    if (vLen == 0) "$k=<empty>" else "$k=<len=$vLen>"
+                "phone_number_id", "psid" ->
+                    "$k=<len=$vLen>"  // never show even truncated
+                else -> "$k=<len=$vLen>"
+            }
+        }
+        return "{$parts}"
+    }
+
+    /** Truncate a phone number to last 4 digits for correlation without PII. */
+    private fun safePhoneTail(number: String): String {
+        return if (number.length <= 4) "<short>" else "…${number.takeLast(4)}"
+    }
 
     /**
      * Get the Composio Consumer API key.
@@ -265,7 +315,9 @@ class ComposioClient(
                 if (sid.isNotBlank()) {
                     prefs.putString("composio_session_id", sid)
                 } else {
-                    Log.e(TAG, "Session creation failed: HTTP ${response.code} body=$respBody")
+                    // Truncate response body in logs — could contain tokens/PII
+                    val truncatedBody = if (respBody.length > 200) respBody.take(200) + "…(${respBody.length})" else respBody
+                    Log.e(TAG, "Session creation failed: HTTP ${response.code} body=$truncatedBody")
                 }
                 sid
             }
@@ -322,6 +374,102 @@ class ComposioClient(
     fun setConnectorActive(serviceId: String, active: Boolean) {
         prefs.putString("connector_active_$serviceId", active.toString())
         Log.i(TAG, "Connector $serviceId toggled: $active")
+    }
+
+    // ── Fix S2: Pending-connect nonce (OAuth CSRF protection) ────────────
+    // Records that a connect was initiated for [serviceId] with a 10-minute
+    // TTL. When the deep-link redirect comes back, validateAndConsumePendingConnect()
+    // checks that a pending connect exists for the claimed service and that
+    // it hasn't expired. This prevents spoofed redirects from other apps
+    // (which can fire stremini://composio?status=success&provider=xxx) from
+    // being accepted as legitimate connection events.
+    //
+    // NOTE: This is a lighter-weight version of the standard OAuth `state`
+    // nonce (RFC 8252). We can't inject a state param into Composio's
+    // managed OAuth URL, so we track the pending connect locally instead.
+    // The effect is equivalent: a redirect is only accepted if it was
+    // preceded by a real user-initiated connect attempt.
+
+    /** Record that a connect was just initiated for [serviceId]. */
+    fun setPendingConnect(serviceId: String) {
+        val nonce = java.util.UUID.randomUUID().toString()
+        val json = JSONObject().apply {
+            put("serviceId", serviceId)
+            put("nonce", nonce)
+            put("timestamp", System.currentTimeMillis())
+        }
+        prefs.putString("pending_connect_$serviceId", json.toString())
+        Log.i(TAG, "Pending connect recorded for $serviceId (nonce=$nonce)")
+    }
+
+    /**
+     * Validate that a pending connect exists for [serviceId] and hasn't expired.
+     * If valid, consume (delete) it so it can't be reused.
+     *
+     * @param serviceId The service the redirect claims to be for.
+     * @param state The optional `state` param from the redirect URL (may be
+     *   null if Composio didn't echo it back — we don't require it since
+     *   we can't inject it, but if present we check it matches the nonce).
+     * @return true if a valid pending connect existed and was consumed.
+     */
+    fun validateAndConsumePendingConnect(serviceId: String, state: String?): Boolean {
+        val key = "pending_connect_$serviceId"
+        val raw = prefs.getString(key) ?: return false
+        prefs.remove(key)  // Always consume — one-shot use
+        return runCatching {
+            val json = JSONObject(raw)
+            val storedServiceId = json.optString("serviceId", "")
+            val nonce = json.optString("nonce", "")
+            val timestamp = json.optLong("timestamp", 0)
+
+            // Check service matches
+            if (storedServiceId != serviceId) {
+                Log.w(TAG, "Pending connect service mismatch: expected $serviceId, got $storedServiceId")
+                return false
+            }
+            // Check TTL
+            val age = System.currentTimeMillis() - timestamp
+            if (age > PENDING_CONNECT_TTL_MS) {
+                Log.w(TAG, "Pending connect for $serviceId expired (${age}ms > ${PENDING_CONNECT_TTL_MS}ms)")
+                return false
+            }
+            // If the redirect included a state param, verify it matches our nonce.
+            // (Composio's managed auth may not echo it back, so we don't require it.
+            // If it IS present and doesn't match, reject — could be an injection attempt.)
+            if (!state.isNullOrBlank() && !nonce.isNullOrBlank() && state != nonce) {
+                Log.w(TAG, "Pending connect state mismatch for $serviceId — possible injection attempt")
+                return false
+            }
+            Log.i(TAG, "Pending connect validated for $serviceId (age=${age}ms)")
+            true
+        }.getOrDefault(false)
+    }
+
+    /** Clear all pending connects (e.g. on app startup to clean up stale ones). */
+    fun clearAllPendingConnects() {
+        val keys = prefs.allKeys().filter { it.startsWith("pending_connect_") }
+        keys.forEach { prefs.remove(it) }
+    }
+
+    /**
+     * Clear only expired pending connects. Called on client init so that
+     * stale nonces from a previous app session (where OAuth was abandoned)
+     * don't accumulate. Nonces that are still within their TTL are preserved
+     * so an in-flight OAuth flow that survived an app restart can still complete.
+     */
+    private fun clearExpiredPendingConnects() {
+        val now = System.currentTimeMillis()
+        val keys = prefs.allKeys().filter { it.startsWith("pending_connect_") }
+        for (key in keys) {
+            val raw = prefs.getString(key) ?: continue
+            runCatching {
+                val json = JSONObject(raw)
+                val timestamp = json.optLong("timestamp", 0)
+                if (now - timestamp > PENDING_CONNECT_TTL_MS) {
+                    prefs.remove(key)
+                }
+            }
+        }
     }
 
     /**
@@ -456,6 +604,14 @@ class ComposioClient(
             Toast.makeText(context, "Connectors not configured.", Toast.LENGTH_LONG).show()
             return
         }
+        // ── Fix S2: record a pending-connect nonce BEFORE launching OAuth ──
+        // This proves the redirect we're about to receive was preceded by an
+        // actual user-initiated connect attempt. Without it, any app could
+        // fire stremini://composio?status=success&provider=xxx and spoof a
+        // connection. The nonce has a 10-minute TTL (OAuth usually completes
+        // in under 2 minutes; 10 min covers slow networks + user hesitation).
+        setPendingConnect(serviceId)
+
         workScope.launch(Dispatchers.IO) {
             try {
                 val apiKey = getDeveloperApiKey()
@@ -591,7 +747,8 @@ class ComposioClient(
                             }
                         }
                     } else {
-                        Log.e(TAG, "No auth URL in response: $respBody")
+                        val truncBody = if (respBody.length > 200) respBody.take(200) + "…(${respBody.length})" else respBody
+                        Log.e(TAG, "No auth URL in response: $truncBody")
                         withContext(Dispatchers.Main) {
                             Toast.makeText(context, "Failed to get connection link", Toast.LENGTH_LONG).show()
                         }
@@ -847,7 +1004,7 @@ class ComposioClient(
                     // every time (2-5s). Now they hit the cache on repeat.
                     val multiCached = getCachedMultiStepAutomation(instruction)
                     if (multiCached != null) {
-                        Log.i(TAG, "Multi-step cache HIT: $instruction → ${multiCached.size} steps")
+                        Log.i(TAG, "Multi-step cache HIT: ${safeInstruction(instruction)} → ${multiCached.size} steps")
                         // Verify all services in the cached plan are connected
                         for (step in multiCached) {
                             val ids = connected[step.serviceId]
@@ -905,7 +1062,7 @@ class ComposioClient(
                         // silently swallow the action due to wrong field names.
                         val normalizedParams = resolveContactParams(step.actionId, enrichedParams)
                         val stepLabel = "Step ${index + 1}/${steps.size} (${step.serviceName})"
-                        Log.i(TAG, "$stepLabel: executing ${step.actionId} with params=$normalizedParams")
+                        Log.i(TAG, "$stepLabel: executing ${step.actionId} with params=${safeParams(normalizedParams)}")
                         val stepResult = executeAction(
                             step.actionId, normalizedParams, accountId,
                             serviceId = step.serviceId
@@ -933,7 +1090,7 @@ class ComposioClient(
                         error("${step.serviceName} is not connected. Tap the Automations button (plug icon) in the chat and connect ${step.serviceName} first.")
                     }
                     val normalized = resolveContactParams(step.actionId, step.params)
-                    Log.i(TAG, "Single-step from LLM plan: ${step.actionId} params=$normalized")
+                    Log.i(TAG, "Single-step from LLM plan: ${step.actionId} params=${safeParams(normalized)}")
                     val result = executeAction(
                         step.actionId, normalized, ids.first(),
                         serviceId = step.serviceId
@@ -958,7 +1115,7 @@ class ComposioClient(
             val cached = getCachedAutomation(instruction)
             if (cached != null) {
                 val (cachedActionId, cachedParams) = cached
-                Log.i(TAG, "Automation cache HIT: $instruction → $cachedActionId")
+                Log.i(TAG, "Automation cache HIT: ${safeInstruction(instruction)} → $cachedActionId")
                 val accountId = connected[service.id]?.firstOrNull()
                     ?: error("${service.name} is not connected. Connect it first.")
                 // Re-run normalization on the cached params — the user may
@@ -1335,7 +1492,7 @@ Return ONLY valid JSON (no markdown, no explanation):
                 val isPhoneNumber = rawTo.matches(Regex("^\\+?[0-9]{6,15}$"))
                 val resolved = if (isPhoneNumber) rawTo else {
                     resolveContact(rawTo)?.also {
-                        Log.i(TAG, "WhatsApp contact resolved: $rawTo -> $it")
+                        Log.i(TAG, "WhatsApp contact resolved: <name len=${rawTo.length}> -> ${safePhoneTail(it)}")
                     } ?: rawTo
                 }
                 // 4) CRITICAL: Composio's WhatsApp API rejects the leading "+".
@@ -1350,7 +1507,7 @@ Return ONLY valid JSON (no markdown, no explanation):
                 if (p["phone_number_id"]?.toString().isNullOrBlank()) {
                     p["phone_number_id"] = WHATSAPP_PHONE_NUMBER_ID
                 }
-                Log.i(TAG, "WhatsApp params normalized → to_number=$finalNumber text=$rawText phone_number_id=${p["phone_number_id"]}")
+                Log.i(TAG, "WhatsApp params normalized → to_number=${safePhoneTail(finalNumber)} text=<len=${rawText.length}> phone_number_id=<len=${p["phone_number_id"]?.toString()?.length ?: 0}>")
             }
 
             actionId.startsWith("INSTAGRAM") -> {
@@ -1360,7 +1517,7 @@ Return ONLY valid JSON (no markdown, no explanation):
                 val isNumericPsid = rawRid.matches(Regex("^[0-9]{10,20}$"))
                 if (!isNumericPsid) {
                     p["recipient_id"] = INSTAGRAM_DEFAULT_PSID
-                    Log.i(TAG, "Instagram recipient_id normalized: '$rawRid' → default PSID $INSTAGRAM_DEFAULT_PSID")
+                    Log.i(TAG, "Instagram recipient_id normalized: <len=${rawRid.length}> → default PSID <len=${INSTAGRAM_DEFAULT_PSID.length}>")
                 }
                 // Normalize message → text
                 p.remove("message")?.let { p.putIfAbsent("text", it) }

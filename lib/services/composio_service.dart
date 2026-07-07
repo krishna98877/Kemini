@@ -88,16 +88,34 @@ class ComposioServiceManager {
         if (event is Map) {
           final eventType = event['event'] as String?;
           if (eventType == 'connection_success') {
-            // A service was just connected via WebView auth
+            // SECURITY (Fix S1): A service was reportedly connected via
+            // WebView auth. The native side now re-verifies with the real
+            // Composio API before sending this event (see verifyAndNotifyFlutter
+            // in MainActivity.kt), so the `verified` flag tells us whether
+            // the server actually confirmed the connection.
+            //
+            // We still don't trust the event payload's serviceId-only
+            // signal — we refresh the FULL service status map from the
+            // native side (which itself just fetched from the Composio API).
+            // This prevents a spoofed event from corrupting our cache even
+            // if an attacker somehow bypasses the native verification.
             final serviceId = event['serviceId'] as String?;
-            if (serviceId != null) {
-              _serviceStatus[serviceId] = true;
-              debugPrint('Composio: $serviceId connected via auth');
+            final verified = event['verified'] as bool? ?? false;
+            if (serviceId != null && verified) {
+              debugPrint('Composio: $serviceId connected (server-verified)');
+              // Refresh the full status map from native (which fetched
+              // from the real Composio API) — this is the source of truth.
+              refreshServiceStatuses();
+            } else {
+              // Unverified or missing serviceId — don't update cache.
+              // Trigger a refresh so the UI reflects reality.
+              debugPrint('Composio: connection_success event received but not verified — refreshing');
+              refreshServiceStatuses();
             }
           } else if (eventType == 'connection_lost') {
             // A 401 triggered a local disconnect on the native side.
-            // Update the Dart cache so the UI and next automation check
-            // immediately reflect reality without waiting for a restart.
+            // This is trustworthy because it's triggered by a real API
+            // 401 response, not by an external intent.
             final serviceId = event['serviceId'] as String?;
             if (serviceId != null) {
               _serviceStatus[serviceId] = false;

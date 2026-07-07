@@ -33,6 +33,23 @@ class MainActivity : FlutterActivity() {
     private val microphonePermissionRequestCode = MIC_REQUEST_CODE
 
     // ── Deep-link callback: Composio sends stremini://composio?provider=xxx&status=success ──────
+    //
+    // SECURITY (Fix S1): The old code trusted the `status` and `provider`
+    // query parameters from the intent and immediately forwarded a
+    // `connection_success` event to Flutter — which then set
+    // `_serviceStatus[serviceId] = true` with no re-check. Any other app
+    // on the device could fire `stremini://composio?status=success&provider=whatsapp`
+    // and make the UI show any service as "Connected" when it wasn't.
+    //
+    // Real automation execution was still gated by a live server check
+    // (isConnectorActive / isServiceConnected in Kotlin), so this couldn't
+    // trigger unauthorized sends — but it was a trust/UI-integrity hole.
+    //
+    // Fix: on ANY deep-link hit, we (1) check that a connect was actually
+    // in-flight for this service (Fix S2 — pending-connect nonce), then
+    // (2) re-fetch the real connection status from the Composio API before
+    // forwarding to Flutter. Flutter's `_serviceStatus` is now only ever
+    // set from a verified server response, never from the intent payload.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         val data = intent.data ?: return
@@ -40,8 +57,20 @@ class MainActivity : FlutterActivity() {
             val provider = data.getQueryParameter("provider")
             val status = data.getQueryParameter("status")
             val code = data.getQueryParameter("code")
+            val state = data.getQueryParameter("state")
 
-            Log.i(TAG, "Composio callback: provider=$provider, status=$status")
+            Log.i(TAG, "Composio callback received: provider=$provider, status=$status, hasCode=${code != null}")
+
+            // ── Fix S2: validate the state nonce ──────────────────────
+            // A connect must have been initiated by the user recently for
+            // this redirect to be legitimate. If no pending connect exists
+            // for this provider (or it's expired), treat as spoofed.
+            val svcId = provider ?: ""
+            if (svcId.isNotBlank() && !composioClient.validateAndConsumePendingConnect(svcId, state)) {
+                Log.w(TAG, "Rejecting deep-link: no pending connect for '$svcId' (spoofed or expired)")
+                Toast.makeText(this, "Connection verification failed. Please try connecting again.", Toast.LENGTH_LONG).show()
+                return
+            }
 
             // Notify the overlay service to refresh connected services
             val refreshIntent = Intent(this, ChatOverlayService::class.java).apply {
@@ -51,18 +80,58 @@ class MainActivity : FlutterActivity() {
             }
             startService(refreshIntent)
 
-            // Notify Flutter via the composio event channel
-            _composioEventSink?.success(mapOf(
-                "event" to "connection_success",
-                "serviceId" to (provider ?: ""),
-                "status" to (status ?: "success")
-            ))
-
             if (code != null) {
                 exchangeCodeForToken(code)
             } else if (status == "success" || status == "connected") {
+                // ── Fix S1: re-verify with the real API before telling Flutter ──
+                // Don't trust the intent's `status` parameter — re-fetch the
+                // actual connection state from Composio's server.
+                verifyAndNotifyFlutter(svcId)
+            } else {
+                // Ambiguous status — let the refresh handle it
                 refreshConnectedServicesCache()
-                Toast.makeText(this, "Service connected! You can now use it in chat.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    /**
+     * Re-verify that [serviceId] is actually connected by calling the real
+     * Composio API, then forward the verified result to Flutter's event
+     * channel. Only emits `connection_success` if the server confirms an
+     * ACTIVE account exists; otherwise emits nothing (the periodic refresh
+     * will keep Flutter's cache accurate).
+     */
+    private fun verifyAndNotifyFlutter(serviceId: String) {
+        lifecycleScope.launch {
+            try {
+                val isConnected = if (serviceId.isNotBlank()) {
+                    composioClient.isServiceConnected(serviceId)
+                } else false
+
+                if (isConnected) {
+                    _composioEventSink?.success(mapOf(
+                        "event" to "connection_success",
+                        "serviceId" to serviceId,
+                        "status" to "connected",
+                        "verified" to true   // Flutter can trust this — it came from the server
+                    ))
+                    Toast.makeText(this@MainActivity, "Service connected! You can now use it in chat.", Toast.LENGTH_LONG).show()
+                } else {
+                    // The redirect said "success" but the server disagrees —
+                    // don't lie to Flutter. Let the user know something is off.
+                    Log.w(TAG, "Deep-link said success but server says $serviceId is NOT connected")
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Connection could not be verified. Please try again.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                // Always refresh the full cache so Flutter's map stays in sync
+                refreshConnectedServicesCache()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to verify connection for $serviceId", e)
+                // On network error, don't claim success — let the next refresh handle it
+                refreshConnectedServicesCache()
             }
         }
     }

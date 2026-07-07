@@ -81,6 +81,63 @@ Therefore, **no real API keys, tokens, or account IDs are ever committed**.
 
 ---
 
+## ⚠️ Known Limitation: Client-Embedded API Keys (S4)
+
+**This is the highest-impact security limitation of the current architecture.**
+
+`COMPOSIO_CONSUMER_KEY`, `GROQ_API_KEY`, and all `AUTH_CONFIG_*` values are
+injected as `BuildConfig` string constants (and `--dart-define` on the
+Flutter side). **ProGuard/R8 does NOT encrypt string constants** — they are
+trivially recoverable from any distributed APK via `apktool`, `strings`, or
+`jadx` regardless of minification.
+
+### Impact
+
+A leaked Composio consumer key lets anyone call the Composio API under your
+account/quota. Depending on Composio's authorization model, an attacker who
+also discovers a `connected_account_id` / `entity_id` (which are also
+transmitted in API requests and could be sniffed from network traffic on a
+rooted device) could potentially target accounts whose connections were
+established by your users.
+
+A leaked Groq API key lets anyone burn your Groq inference quota.
+
+### Why it's this way
+
+The app uses a **managed-auth, shared-developer-key** model: end users never
+provide API keys — they tap "Connect" and log in via Composio's hosted OAuth.
+This is great UX but fundamentally requires the developer key to live
+client-side.
+
+### Recommended mitigation (best — for production)
+
+**Proxy all Composio + Groq calls through your own backend.** The app would
+send requests to `api.yourdomain.com/composio/execute` instead of
+`backend.composio.dev` directly. Your backend holds the consumer key
+server-side, authenticates the user (via Firebase Auth, JWT, etc.), and
+forwards the request to Composio with the developer key injected there.
+The APK never contains the key.
+
+### Interim mitigations (already in place)
+
+- Keys are NOT in the open-source repo (scrubbed in commit `ef218cd`).
+- Keys are injected at build time from `local.properties` (gitignored).
+- `BuildConfig` fields are at least obfuscated by R8 in release builds
+  (string constants are still recoverable, but it raises the bar slightly).
+- ProGuard rules strip `Log.i`/`Log.d` calls in release builds so keys
+  aren't accidentally logged.
+- `usesCleartextTraffic="false"` + `network_security_config.xml` enforce
+  HTTPS-only, preventing MITM sniffing of the key in transit.
+
+### What YOU should do
+
+1. **Rotate the Composio consumer key regularly** (monthly for a public app).
+2. **Monitor Composio dashboard** for anomalous API usage patterns.
+3. **Set up Composio quota limits** so a leaked key can't run up unlimited bills.
+4. **Migrate to a backend proxy** before any large-scale public release.
+
+---
+
 ## Threat Model
 
 | Threat | Mitigation |
@@ -88,9 +145,14 @@ Therefore, **no real API keys, tokens, or account IDs are ever committed**.
 | Attacker reads repo, steals hardcoded API key, burns your Groq quota | No hardcoded keys — every secret is injected via `BuildConfig` or `dart-define` from a gitignored file |
 | Attacker reads repo, finds your Composio `auth_config_id`, impersonates your OAuth app | `auth_config_id` is also injected from `local.properties` — empty in the public repo |
 | Attacker reads git history, finds a key you committed by accident before scrubbing | Document the rotation procedure above; secrets in history = compromised forever |
+| **Attacker extracts API keys from a distributed APK via apktool/jadx** | **Known limitation (S4) — see above. Migrate to a backend proxy for production.** |
 | MITM intercepts Groq / Composio traffic | HTTPS only (`usesCleartextTraffic="false"`); Groq + Composio have valid public certs |
 | User installs a malicious fork that exfiltrates their contacts | `READ_CONTACTS` permission is declared; users see it at install time. Contact resolution only runs locally on-device, never uploaded. |
 | Prompt injection via chat message leaks system prompt | `SecurityGuards.kt` sanitizes user input; Groq system prompt explicitly forbids revealing instructions |
+| **Malicious app fires `stremini://composio?status=success` to spoof a connection (S1)** | **Fixed: MainActivity re-verifies with the real Composio API before notifying Flutter; Flutter only trusts server-verified events.** |
+| **Spoofed OAuth redirect without a prior user-initiated connect (S2)** | **Fixed: pending-connect nonce with 10-min TTL. Redirect rejected if no pending connect exists for the claimed service.** |
+| **Ambiguous OAuth redirect shows false success (S3)** | **Fixed: ComposioAuthActivity verifies via `isServiceConnected()` before showing the green checkmark.** |
+| **PII (message text, phone numbers) leaked to logcat (S5)** | **Fixed: all `Log.i` calls now log field presence / truncated values, never raw params. See ComposioClient.kt.** |
 
 ---
 
