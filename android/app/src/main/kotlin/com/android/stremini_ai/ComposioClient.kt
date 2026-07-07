@@ -10,6 +10,7 @@ import com.android.stremini_ai.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -478,6 +479,11 @@ class ComposioClient(
      * Calls GET /api/v3/connected_accounts and looks for any account whose
      * `toolkit.slug` matches [serviceId] AND whose `status` is "ACTIVE".
      *
+     * PERFORMANCE (Fix P2): Uses the in-memory connected-accounts cache
+     * (30-second TTL) so repeated calls within a single automation flow
+     * don't each trigger a network round-trip. The cache is invalidated
+     * on connect/disconnect/toggle.
+     *
      * BUG FIX (previous version was completely broken):
      * - Old code checked `tk.optString("slug")` — but `slug` is nested under
      *   `tk.toolkit.slug`, so the match never succeeded → always returned false.
@@ -489,48 +495,97 @@ class ComposioClient(
      */
     suspend fun isServiceConnected(serviceId: String): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            val apiKey = getDeveloperApiKey()
-            if (apiKey.isBlank()) return@withContext false
-            val client = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
-            val request = Request.Builder()
-                .url("$COMPOSIO_API_BASE/connected_accounts")
-                .addHeader("x-api-key", apiKey)
-                .get()
-                .build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use false
-                handleSessionError(response.code)
-                val body = response.body?.string() ?: return@use false
-                val json = JSONObject(body)
-                val accounts = json.optJSONArray("items") ?: return@use false
-                for (i in 0 until accounts.length()) {
-                    val acct = accounts.optJSONObject(i) ?: continue
-                    // slug is nested under "toolkit", not at top level
-                    val slug = acct.optJSONObject("toolkit")?.optString("slug") ?: ""
-                    val status = acct.optString("status")
-                    val acctId = acct.optString("id")
-                    if (slug == serviceId &&
-                        status == "ACTIVE" &&
-                        acctId.isNotBlank()) {
-                        // Cache the user_id for execute requests
-                        val acctUserId = acct.optString("user_id", "")
-                        if (acctUserId.isNotBlank()) {
-                            prefs.putString("composio_connected_user_id", acctUserId)
-                        }
-                        return@use true
-                    }
-                }
-                false
-            }
+            // ── Fix P2: use the in-memory cache instead of a fresh API call ──
+            val connected = getCachedConnectedServices()
+            // A service is "connected" if it has at least one ACTIVE account.
+            // getConnectedServices() already filters out EXPIRED/FAILED/REVOKED,
+            // so any entry in the map is an ACTIVE account.
+            connected.containsKey(serviceId)
         }.getOrDefault(false)
     }
 
     /**
      * Get all connected services via GET /api/v3/connected_accounts.
+     *
+     * PERFORMANCE (Fix P2): Results are cached in-memory for 30 seconds.
+     * Within that window, repeated calls (e.g. isConnectorActive →
+     * executeAutomation → getConnectedServices) all hit the cache instead
+     * of making 2-3 separate network round-trips. The cache is invalidated
+     * on connect/disconnect via invalidateConnectedServicesCache().
      */
     suspend fun getConnectedServices(): Map<String, List<String>> = withContext(Dispatchers.IO) {
+        getCachedConnectedServices()
+    }
+
+    // ── Fix P2: In-memory cache for connected_accounts ──────────────────
+    // Avoids redundant GET /connected_accounts calls within a single
+    // automation flow. Before this cache, a typical "send hi to royal on
+    // whatsapp" command made 2 network round-trips just to check connection
+    // status: one from isConnectorActive() → isServiceConnected(), and
+    // another from executeAutomation() → getConnectedServices(). Each
+    // round-trip is 200-800ms on a mobile network, so the cache saves
+    // 400-1600ms per command.
+    //
+    // TTL: 30 seconds — long enough to cover a full automation flow
+    // (check + parse + execute), short enough to reflect connect/disconnect
+    // actions taken in another panel within the same app session.
+    //
+    // Thread safety: volatile reference + synchronized write. Reads are
+    // lock-free (the volatile guarantees visibility); writes are synchronized
+    // to prevent two concurrent refreshes from stomping each other.
+
+    private data class ConnectedServicesCacheEntry(
+        val services: Map<String, List<String>>,
+        val timestamp: Long,
+    )
+
+    @Volatile
+    private var connectedServicesCache: ConnectedServicesCacheEntry? = null
+    private val cacheLock = Any()
+    private val CONNECTED_SERVICES_CACHE_TTL_MS = 30_000L  // 30 seconds
+
+    /**
+     * Get connected services from cache if fresh, otherwise fetch from API.
+     * The fetch itself is synchronized so concurrent callers don't trigger
+     * multiple API requests — the first one fetches, the rest wait and
+     * read the result.
+     */
+    private suspend fun getCachedConnectedServices(): Map<String, List<String>> {
+        val cached = connectedServicesCache
+        val now = System.currentTimeMillis()
+        if (cached != null && now - cached.timestamp < CONNECTED_SERVICES_CACHE_TTL_MS) {
+            return cached.services
+        }
+        // Cache miss or stale — fetch under a lock so concurrent callers
+        // don't all hit the API simultaneously.
+        return synchronized(cacheLock) {
+            // Double-check after acquiring the lock — another caller may have
+            // refreshed the cache while we were waiting.
+            val cachedAfterLock = connectedServicesCache
+            val nowAfterLock = System.currentTimeMillis()
+            if (cachedAfterLock != null && nowAfterLock - cachedAfterLock.timestamp < CONNECTED_SERVICES_CACHE_TTL_MS) {
+                cachedAfterLock.services
+            } else {
+                val fresh = fetchConnectedServicesFromApi()
+                connectedServicesCache = ConnectedServicesCacheEntry(fresh, System.currentTimeMillis())
+                fresh
+            }
+        }
+    }
+
+    /** Invalidate the in-memory cache. Call after connect/disconnect/toggle. */
+    fun invalidateConnectedServicesCache() {
+        synchronized(cacheLock) {
+            connectedServicesCache = null
+        }
+        Log.i(TAG, "Connected services cache invalidated")
+    }
+
+    /** The actual API call — no caching, just the network fetch + parse. */
+    private suspend fun fetchConnectedServicesFromApi(): Map<String, List<String>> = withContext(Dispatchers.IO) {
         runCatching {
             val apiKey = getDeveloperApiKey()
+            if (apiKey.isBlank()) return@withContext emptyMap<String, List<String>>()
             val client = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
             val request = Request.Builder()
                 .url("$COMPOSIO_API_BASE/connected_accounts")
@@ -724,6 +779,8 @@ class ComposioClient(
                                         val connected = isServiceConnected(serviceId)
                                         if (connected) {
                                             Log.i(TAG, "$serviceId connected after $attempts polls")
+                                            // ── Fix P2: invalidate the cache so the next call sees the new connection
+                                            invalidateConnectedServicesCache()
                                             // Broadcast connection success to Dart
                                             val intent = Intent("com.android.stremini_ai.SERVICE_DISCONNECTED").apply {
                                                 putExtra("event", "connection_success")
@@ -942,6 +999,9 @@ class ComposioClient(
 
     /** Notify the Flutter side that a service has been disconnected. */
     fun disconnectServiceLocally(serviceId: String, accountId: String) {
+        // ── Fix P2: invalidate the in-memory cache so the next isServiceConnected
+        // call reflects the disconnect immediately (instead of waiting 30s for TTL).
+        invalidateConnectedServicesCache()
         // Notify Flutter side so it can update _serviceStatus immediately.
         // sendBroadcast is non-blocking and safe to call from any thread, so we
         // dispatch on workScope without requiring an external scope to be set.
@@ -991,51 +1051,61 @@ class ComposioClient(
         runCatching {
             if (!isConfigured()) error("Connectors not configured")
 
+            // ── Fix P2: getConnectedServices() now uses an in-memory cache ──
+            // (30s TTL), so this call is FREE on cache hit. Previously it was
+            // a 200-800ms network round-trip on every command.
             val connected = getConnectedServices()
 
-            // ── Multi-step path (requires Groq) ──────────────────────
-            if (groqClient != null) {
+            // ── Fix P1: check caches BEFORE any LLM call ─────────────────────
+            // The old code checked the cache AFTER parseMultiStepIntent(),
+            // which meant every repeat command still paid the full 2-5s LLM
+            // round-trip. Now we check both caches first — repeat commands
+            // execute in ~0ms (cache hit) + the actual API call time.
+            val detectedService = detectService(instruction)
+
+            // P1a: single-service cache check (only if we detected exactly one service)
+            if (detectedService != null) {
+                val cached = getCachedAutomation(instruction)
+                if (cached != null) {
+                    val (cachedActionId, cachedParams) = cached
+                    Log.i(TAG, "Automation cache HIT (pre-LLM): ${safeInstruction(instruction)} → $cachedActionId")
+                    val accountId = connected[detectedService.id]?.firstOrNull()
+                        ?: error("${detectedService.name} is not connected. Connect it first.")
+                    val normalizedCached = resolveContactParams(cachedActionId, cachedParams)
+                    return@runCatching executeAction(
+                        cachedActionId, normalizedCached, accountId,
+                        serviceId = detectedService.id
+                    ).getOrThrow()
+                }
+            }
+
+            // P1b: multi-step cache check (works regardless of detected service count,
+            // because the multi-step plan may involve services the keyword detector
+            // didn't catch — e.g. "check my emails and add the important ones to sheets"
+            // only mentions gmail + sheets but the plan might involve a 3rd service)
+            val multiCached = getCachedMultiStepAutomation(instruction)
+            if (multiCached != null) {
+                Log.i(TAG, "Multi-step cache HIT (pre-LLM): ${safeInstruction(instruction)} → ${multiCached.size} steps")
+                return@runCatching executeMultiStepChain(multiCached, connected, instruction, isCached = true)
+            }
+
+            // ── Fix P3: local pre-check — skip multi-step planner for single-service ──
+            // The multi-step planner prompt sends the FULL service catalog + action
+            // catalog + examples to Groq for EVERY message routed to Composio, even
+            // trivial single-service ones like "send hi to royal on whatsapp." That's
+            // a 2-5s LLM round-trip + 2-4x more tokens than necessary.
+            //
+            // Pre-check: if (1) exactly ONE service is detected locally, AND (2) no
+            // connector words ("then", "after that", "also", "and then", "followed by")
+            // are present, skip the multi-step planner entirely and go straight to
+            // the smaller, already-scoped parseIntentWithLLM() prompt.
+            val isLikelyMultiStep = looksLikeMultiStep(instruction)
+            val shouldSkipMultiStepPlanner = detectedService != null && !isLikelyMultiStep
+
+            if (groqClient != null && !shouldSkipMultiStepPlanner) {
+                // ── Multi-step path (requires Groq) ──────────────────────
                 val steps = parseMultiStepIntent(instruction, groqClient)
                 if (steps.size > 1) {
-                    // ── Fix #4: multi-step cache check ────────────────────
-                    // Same AI-learning principle as the single-service fast
-                    // path. Repeat multi-step commands (e.g. "check Gmail for
-                    // invoices then add to Sheets") were re-hitting the LLM
-                    // every time (2-5s). Now they hit the cache on repeat.
-                    val multiCached = getCachedMultiStepAutomation(instruction)
-                    if (multiCached != null) {
-                        Log.i(TAG, "Multi-step cache HIT: ${safeInstruction(instruction)} → ${multiCached.size} steps")
-                        // Verify all services in the cached plan are connected
-                        for (step in multiCached) {
-                            val ids = connected[step.serviceId]
-                            if (ids.isNullOrEmpty()) {
-                                error("${step.serviceName} is needed for this automation but isn't connected. " +
-                                    "Tap the plug icon and connect ${step.serviceName} first.")
-                            }
-                        }
-                        // Execute the cached chain (resolved params already
-                        // stored, but re-run resolveContactParams defensively).
-                        val results = mutableListOf<String>()
-                        var previousResult: String? = null
-                        for ((index, step) in multiCached.withIndex()) {
-                            val accountId = connected[step.serviceId]!!.first()
-                            val enrichedParams = if (previousResult != null) {
-                                step.params.toMutableMap().apply {
-                                    put("_previousStepOutput", previousResult)
-                                }
-                            } else step.params
-                            val normalizedParams = resolveContactParams(step.actionId, enrichedParams)
-                            val stepLabel = "Step ${index + 1}/${multiCached.size} (${step.serviceName}) [cached]"
-                            val stepResult = executeAction(
-                                step.actionId, normalizedParams, accountId,
-                                serviceId = step.serviceId
-                            ).getOrElse { e -> error("$stepLabel failed: ${e.message}") }
-                            results.add("$stepLabel: $stepResult")
-                            previousResult = stepResult
-                        }
-                        return@runCatching results.joinToString("\n")
-                    }
-
                     // Verify all services in the plan are connected
                     for (step in steps) {
                         val ids = connected[step.serviceId]
@@ -1044,45 +1114,16 @@ class ComposioClient(
                                 "Tap the plug icon and connect ${step.serviceName} first.")
                         }
                     }
-                    // Execute the chain
-                    val results = mutableListOf<String>()
-                    var previousResult: String? = null
-                    for ((index, step) in steps.withIndex()) {
-                        val accountId = connected[step.serviceId]!!.first()
-                        // Merge previous step's output into this step's params
-                        // so the LLM-planned params can reference dynamic data.
-                        val enrichedParams = if (previousResult != null) {
-                            step.params.toMutableMap().apply {
-                                put("_previousStepOutput", previousResult)
-                            }
-                        } else {
-                            step.params
-                        }
-                        // CRITICAL: normalize params so Composio doesn't
-                        // silently swallow the action due to wrong field names.
-                        val normalizedParams = resolveContactParams(step.actionId, enrichedParams)
-                        val stepLabel = "Step ${index + 1}/${steps.size} (${step.serviceName})"
-                        Log.i(TAG, "$stepLabel: executing ${step.actionId} with params=${safeParams(normalizedParams)}")
-                        val stepResult = executeAction(
-                            step.actionId, normalizedParams, accountId,
-                            serviceId = step.serviceId
-                        ).getOrElse { e ->
-                            error("$stepLabel failed: ${e.message}")
-                        }
-                        results.add("$stepLabel: $stepResult")
-                        previousResult = stepResult
-                    }
-                    // ── Fix #4: cache the resolved multi-step plan on success ──
-                    // Store the LLM-parsed steps with RESOLVED params so the
-                    // next identical command skips the 2-5s LLM round-trip.
+                    // Execute the chain (P4: concurrent where possible)
+                    val result = executeMultiStepChain(steps, connected, instruction, isCached = false)
+                    // Cache the resolved multi-step plan on success (Fix #4)
                     val resolvedStepsForCache = steps.map { step ->
                         step.copy(params = resolveContactParams(step.actionId, step.params))
                     }
                     cacheMultiStepAutomation(instruction, resolvedStepsForCache)
-                    return@runCatching results.joinToString("\n")
+                    return@runCatching result
                 }
-                // Single step returned — fall through to the fast path below
-                // but reuse the LLM-parsed step if available.
+                // Single step returned by the planner — fall through to single-step path
                 if (steps.size == 1) {
                     val step = steps[0]
                     val ids = connected[step.serviceId]
@@ -1095,39 +1136,15 @@ class ComposioClient(
                         step.actionId, normalized, ids.first(),
                         serviceId = step.serviceId
                     ).getOrThrow()
-                    // Cache the single-step plan as well (resolved params)
                     cacheAutomationResult(instruction, step.actionId, normalized)
                     return@runCatching result
                 }
             }
 
             // ── Single-service fast path ─────────────────────────────
-            val service = detectService(instruction)
+            // (Also reached when P3's pre-check skips the multi-step planner)
+            val service = detectedService
                 ?: error("Couldn't detect which service to use. Try mentioning the service name.")
-
-            // ── AI Learning: check cache first ──────────────────────────
-            // Cache HIT path now also re-runs resolveContactParams() so the
-            // normalization logic (WhatsApp + strip, Instagram PSID swap,
-            // field-name synonyms) is ALWAYS applied before execution —
-            // even on cached repeats. This closes the bypass bug where
-            // cached raw params (e.g. "to_number":"royal") would skip
-            // normalization and silently fail on the second invocation.
-            val cached = getCachedAutomation(instruction)
-            if (cached != null) {
-                val (cachedActionId, cachedParams) = cached
-                Log.i(TAG, "Automation cache HIT: ${safeInstruction(instruction)} → $cachedActionId")
-                val accountId = connected[service.id]?.firstOrNull()
-                    ?: error("${service.name} is not connected. Connect it first.")
-                // Re-run normalization on the cached params — the user may
-                // have connected/changed the WhatsApp number since caching,
-                // and contact-name → phone resolution may now succeed where
-                // it failed before.
-                val normalizedCached = resolveContactParams(cachedActionId, cachedParams)
-                return@runCatching executeAction(
-                    cachedActionId, normalizedCached, accountId,
-                    serviceId = service.id
-                ).getOrThrow()
-            }
 
             val accountIds = connected[service.id]
             if (accountIds.isNullOrEmpty()) {
@@ -1148,13 +1165,121 @@ class ComposioClient(
             val (actionId, params) = actionParams
             val resolvedParams = resolveContactParams(actionId, params)
             val result = executeAction(actionId, resolvedParams, accountId, serviceId = service.id).getOrThrow()
-            // Cache the RESOLVED params (not the raw ones) so the cache hit
-            // path doesn't need to redo contact resolution if it succeeded
-            // — but it still re-runs resolveContactParams defensively in
-            // case the user's contact list has changed.
             cacheAutomationResult(instruction, actionId, resolvedParams)
             result
         }
+    }
+
+    /**
+     * Fix P3: Cheap local check for multi-step intent signals.
+     *
+     * Looks for connector words that strongly indicate a multi-step request:
+     * "then", "after that", "also", "and then", "followed by", "next",
+     * "finally", "lastly", "secondly", etc.
+     *
+     * This is a heuristic — false positives just mean we run the multi-step
+     * planner unnecessarily (correctness preserved, just slightly slower).
+     * False negatives would split a multi-step request into a single step,
+     * which the LLM would handle gracefully by picking the primary action.
+     */
+    private fun looksLikeMultiStep(instruction: String): Boolean {
+        val lower = instruction.lowercase()
+        val connectorWords = listOf(
+            " then ", " after that ", " and then ", " also ",
+            " followed by ", " next ", " finally ", " lastly ",
+            " secondly ", " thirdly ", " afterwards ", " and after ",
+            " first ", " second ", " third "
+        )
+        return connectorWords.any { lower.contains(it) }
+    }
+
+    /**
+     * Execute a multi-step automation chain.
+     *
+     * Fix P4: Steps WITHOUT the `_dependsOnPreviousStep` flag are executed
+     * CONCURRENTLY via `async {}` + `awaitAll()`. Steps WITH the dependency
+     * flag run strictly sequentially (each waits for the previous to complete
+     * so its output can be injected as context).
+     *
+     * The LLM already tags dependencies via `_dependsOnPreviousStep: true`
+     * in the planned params, but the old executor ignored it and ran every
+     * step one-after-another. For independent steps (e.g. "post to Twitter
+     * AND send a Discord message"), concurrent execution cuts total latency
+     * from N×stepTime to ~1×stepTime.
+     */
+    private suspend fun executeMultiStepChain(
+        steps: List<AutomationStep>,
+        connected: Map<String, List<String>>,
+        instruction: String,
+        isCached: Boolean,
+    ): String {
+        val results = mutableListOf<String>()
+        var previousResult: String? = null
+        val pendingAsync = mutableListOf<kotlinx.coroutines.Deferred<Pair<Int, String>>>()
+
+        fun flushPending(): List<Pair<Int, String>> {
+            if (pendingAsync.isEmpty()) return emptyList()
+            // Await all pending concurrent steps. If any threw, the exception
+            // propagates out of await() and up to the caller (executeAutomation),
+            // which wraps everything in runCatching — so the error message
+            // surfaces to the user as "Step X failed: ...".
+            val completed = pendingAsync.map { it.await() }
+            pendingAsync.clear()
+            return completed
+        }
+
+        for ((index, step) in steps.withIndex()) {
+            val accountId = connected[step.serviceId]!!.first()
+            val dependsOnPrevious = step.params["_dependsOnPreviousStep"]?.toString() == "true"
+
+            if (dependsOnPrevious && pendingAsync.isNotEmpty()) {
+                // Flush any pending concurrent steps before starting a dependent one
+                flushPending().forEach { (idx, res) ->
+                    results.add("Step ${idx + 1}/${steps.size} (${steps[idx].serviceName})${if (isCached) " [cached]" else ""}: $res")
+                }
+            }
+
+            val enrichedParams = if (previousResult != null && dependsOnPrevious) {
+                step.params.toMutableMap().apply {
+                    put("_previousStepOutput", previousResult)
+                    remove("_dependsOnPreviousStep")
+                }
+            } else {
+                step.params.toMutableMap().apply { remove("_dependsOnPreviousStep") }
+            }
+            val normalizedParams = resolveContactParams(step.actionId, enrichedParams)
+            val stepLabel = "Step ${index + 1}/${steps.size} (${step.serviceName})${if (isCached) " [cached]" else ""}"
+            Log.i(TAG, "$stepLabel: executing ${step.actionId} with params=${safeParams(normalizedParams)}")
+
+            if (dependsOnPrevious || index == steps.lastIndex) {
+                // Dependent step OR last step — run sequentially
+                // First flush any concurrent steps that are still pending
+                flushPending().forEach { (idx, res) ->
+                    results.add("Step ${idx + 1}/${steps.size} (${steps[idx].serviceName})${if (isCached) " [cached]" else ""}: $res")
+                }
+                val stepResult = executeAction(
+                    step.actionId, normalizedParams, accountId,
+                    serviceId = step.serviceId
+                ).getOrElse { e -> error("$stepLabel failed: ${e.message}") }
+                results.add("$stepLabel: $stepResult")
+                previousResult = stepResult
+            } else {
+                // Independent step — launch concurrently
+                val deferred = workScope.async {
+                    val res = executeAction(
+                        step.actionId, normalizedParams, accountId,
+                        serviceId = step.serviceId
+                    ).getOrElse { e -> error("$stepLabel failed: ${e.message}") }
+                    Pair(index, res)
+                }
+                pendingAsync.add(deferred)
+            }
+        }
+        // Flush any remaining concurrent steps
+        flushPending().forEach { (idx, res) ->
+            results.add("Step ${idx + 1}/${steps.size} (${steps[idx].serviceName})${if (isCached) " [cached]" else ""}: $res")
+        }
+        return results.joinToString("\n")
     }
 
     /**

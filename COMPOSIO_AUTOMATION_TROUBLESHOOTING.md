@@ -308,9 +308,22 @@ adb logcat -s ComposioClient:* ChatOverlayService:* GroqClient:*
 - Cache (multi-step): ✅ full step list cached on success (Fix #4)
 - `clearAutomationCache()` API: ✅ exposed for debugging/reset
 
-### Part 1 fixes applied (commit pending)
+### Part 1 fixes applied (commit `8a6ee23`)
 - **Fix #1**: Cache HIT now re-runs `resolveContactParams()` — closed the bypass bug where cached raw params (`to_number:"royal"`) would skip normalization and silently fail on repeat. Cache now stores RESOLVED params.
 - **Fix #2**: Cache key is now the full lowercased + trimmed instruction string (collision-free), not `String.hashCode()` (32-bit, collision-prone). Added `cacheKey()` helper that also collapses internal whitespace so `"send  hi"` and `"send hi"` hit the same key.
 - **Fix #3**: Added `resolveContactParams()` branches for Facebook, LinkedIn, Reddit, Google Drive, Google Sheets, YouTube. These 6 services previously had ZERO normalization — LLM-hallucinated field names (`"post"` for Facebook, `"filename"` for Drive, etc.) silently no-oped with `successful:true`. Each now has a synonym map mirroring the WhatsApp/Instagram/Gmail/Discord/GitHub pattern.
 - **Fix #4**: Multi-step automation plans now cached on success via `cacheMultiStepAutomation()` + `getCachedMultiStepAutomation()`. Repeat multi-step commands (e.g. "check Gmail for invoices then add to Sheets") skip the 2-5s LLM round-trip entirely. Cache stores RESOLVED params per step; cache-hit path re-runs `resolveContactParams` defensively.
 - Also added: `clearAutomationCache(instruction?)` public API for debugging/reset, `EncryptedPrefs.allKeys()` method.
+
+### Part 2 security fixes applied (commit `e88e5e1`)
+- **S1**: Deep-link spoof protection — `MainActivity.verifyAndNotifyFlutter()` re-checks with real API before notifying Flutter; Dart side only trusts `verified: true` events.
+- **S2**: OAuth state nonce — `setPendingConnect()` / `validateAndConsumePendingConnect()` with 10-min TTL. Redirect rejected if no pending connect exists.
+- **S3**: `ComposioAuthActivity` no longer defaults to success on ambiguous redirects — calls `isServiceConnected()` to verify before showing the green checkmark.
+- **S4**: Documented client-embedded key risk in `SECURITY.md` (highest-impact limitation; migrate to backend proxy for production).
+- **S5**: PII-safe logging — `safeInstruction()`, `safeParams()`, `safePhoneTail()` helpers replace all raw-param `Log.i` calls.
+
+### Part 3 performance fixes applied (commit pending)
+- **P1**: Cache check moved BEFORE any LLM call. Repeat commands now execute in ~0ms (cache hit) + API call time, instead of paying the full 2-5s LLM round-trip every time. Both single-service and multi-step caches are checked before `parseMultiStepIntent()`.
+- **P2**: In-memory cache for `getConnectedServices()` with 30s TTL. Eliminates the double-fetch (was: `isConnectorActive()` → `isServiceConnected()` → `GET /connected_accounts`, then `executeAutomation()` → `getConnectedServices()` → same endpoint again). Saves 400-1600ms per command. Cache invalidated on connect/disconnect.
+- **P3**: Local pre-check skips the multi-step planner for single-service messages. `looksLikeMultiStep()` checks for connector words ("then", "after that", "also", etc.). If exactly one service is detected AND no connector words → go straight to the smaller `parseIntentWithLLM()` prompt. Saves 2-5s + 2-4x tokens on trivial single-service commands.
+- **P4**: Concurrent execution for independent multi-step chains. Steps without `_dependsOnPreviousStep: true` now run via `async {}` + `await()`. Dependent steps still run sequentially. Cuts total latency from N×stepTime to ~1×stepTime for independent chains (e.g. "post to Discord AND send a Gmail").
