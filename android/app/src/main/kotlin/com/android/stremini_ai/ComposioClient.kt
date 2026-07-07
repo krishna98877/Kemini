@@ -110,41 +110,53 @@ class ComposioClient(
             ServiceDef("youtube",      "YouTube",      listOf("youtube","youtube video","youtube channel","upload video","youtube comment","subscribe","playlist","youtube shorts"), 0xFFFF0000, "Y", R.drawable.logo_youtube),
         )
 
-        /** Map of common user intents → Composio action IDs */
+        /** Map of common user intents → Composio action IDs.
+         *
+         * VERIFIED against Composio's live API (2026-07-07). All action IDs
+         * below are confirmed to exist in Composio's tool registry.
+         * Previously 13 of 19 were wrong (Composio returned "Tool not found").
+         * Key naming conventions: Google Drive = GOOGLEDRIVE_* (no underscore),
+         * Google Sheets = GOOGLESHEETS_* (no underscore),
+         * Discord = DISCORDBOT_* (not DISCORD_*).
+         */
         val INTENT_ACTION_MAP = mapOf(
-            "send_email"      to "GMAIL_SEND_EMAIL",
-            "read_email"      to "GMAIL_GET_EMAILS",
-            "search_email"    to "GMAIL_SEARCH_EMAILS",
-            "create_issue"    to "GITHUB_CREATE_AN_ISSUE",
-            "create_repo"     to "GITHUB_CREATE_A_REPOSITORY",
-            "list_repos"      to "GITHUB_LIST_REPOSITORIES_FOR_AUTHENTICATED_USER",
-            "create_pr"       to "GITHUB_CREATE_A_PULL_REQUEST",
-            "send_whatsapp"   to "WHATSAPP_SEND_MESSAGE",
-            "send_instagram"  to "INSTAGRAM_SEND_TEXT_MESSAGE",
-            "post_facebook"   to "FACEBOOK_CREATE_POST",
-            "send_discord"    to "DISCORD_SEND_A_MESSAGE_TO_A_CHANNEL",
-            "linkedin_post"   to "LINKEDIN_CREATE_A_POST",
-            "reddit_post"     to "REDDIT_CREATE_A_POST",
-            "upload_drive"    to "GOOGLE_DRIVE_UPLOAD_FILE",
-            "list_drive"      to "GOOGLE_DRIVE_LIST_FILES",
-            "read_sheet"      to "GOOGLE_SHEETS_READ_SHEET",
-            "update_sheet"    to "GOOGLE_SHEETS_UPDATE_SHEET",
-            "upload_youtube"  to "YOUTUBE_UPLOAD_A_VIDEO",
-            "youtube_comment" to "YOUTUBE_ADD_COMMENT",
+            "send_email"      to "GMAIL_SEND_EMAIL",                    // ✅ verified
+            "read_email"      to "GMAIL_FETCH_EMAILS",                  // was GMAIL_GET_EMAILS (not found)
+            "search_email"    to "GMAIL_LIST_MESSAGES",                 // was GMAIL_SEARCH_EMAILS (not found)
+            "create_issue"    to "GITHUB_CREATE_AN_ISSUE",              // ✅ verified
+            "create_repo"     to "GITHUB_CREATE_A_REPOSITORY_FOR_THE_AUTHENTICATED_USER", // was GITHUB_CREATE_A_REPOSITORY
+            "list_repos"      to "GITHUB_LIST_ACCESSIBLE_REPOSITORIES",  // was GITHUB_LIST_REPOSITORIES_FOR_AUTHENTICATED_USER
+            "create_pr"       to "GITHUB_CREATE_A_PULL_REQUEST",        // ✅ verified
+            "send_whatsapp"   to "WHATSAPP_SEND_MESSAGE",               // ✅ verified
+            "send_instagram"  to "INSTAGRAM_SEND_TEXT_MESSAGE",         // ✅ verified
+            "post_facebook"   to "FACEBOOK_CREATE_POST",                // ✅ verified
+            "send_discord"    to "DISCORDBOT_CREATE_MESSAGE",           // was DISCORD_SEND_A_MESSAGE_TO_A_CHANNEL
+            "linkedin_post"   to "LINKEDIN_CREATE_LINKED_IN_POST",      // was LINKEDIN_CREATE_A_POST
+            "reddit_post"     to "REDDIT_CREATE_REDDIT_POST",            // was REDDIT_CREATE_A_POST
+            "upload_drive"    to "GOOGLEDRIVE_CREATE_FILE_FROM_TEXT",   // was GOOGLE_DRIVE_UPLOAD_FILE
+            "list_drive"      to "GOOGLEDRIVE_FIND_FILE",               // was GOOGLE_DRIVE_LIST_FILES
+            "read_sheet"      to "GOOGLESHEETS_VALUES_GET",             // was GOOGLE_SHEETS_READ_SHEET
+            "update_sheet"    to "GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND", // was GOOGLE_SHEETS_UPDATE_SHEET
+            "upload_youtube"  to "YOUTUBE_UPLOAD_VIDEO",               // was YOUTUBE_UPLOAD_A_VIDEO
+            "youtube_comment" to "YOUTUBE_POST_COMMENT",               // was YOUTUBE_ADD_COMMENT
         )
 
-        /** Map serviceId → action ID prefix for LLM prompt filtering */
+        /** Map serviceId → action ID prefix for LLM prompt filtering.
+         * VERIFIED: prefixes match Composio's actual tool naming convention.
+         * Google Drive tools use GOOGLEDRIVE_* (no underscore), Google Sheets
+         * use GOOGLESHEETS_*, Discord uses DISCORDBOT_* (not DISCORD_*).
+         */
         val SERVICE_ACTION_PREFIX = mapOf(
             "github" to "GITHUB",
             "gmail" to "GMAIL",
             "whatsapp" to "WHATSAPP",
             "instagram" to "INSTAGRAM",
             "facebook" to "FACEBOOK",
-            "googledrive" to "GOOGLE_DRIVE",
-            "discord" to "DISCORD",
+            "googledrive" to "GOOGLEDRIVE",
+            "discord" to "DISCORDBOT",
             "linkedin" to "LINKEDIN",
             "reddit" to "REDDIT",
-            "googlesheets" to "GOOGLE_SHEETS",
+            "googlesheets" to "GOOGLESHEETS",
             "youtube" to "YOUTUBE",
         )
 
@@ -1302,7 +1314,7 @@ Return ONLY a valid JSON array, nothing else.
 User request: ${protectForAi(instruction, source = "multi-step automation")}
 
 Example single-service: [{"serviceId":"gmail","serviceName":"Gmail","actionId":"GMAIL_SEND_EMAIL","params":{"to":"john@example.com","subject":"Hello","body":"Hi there"}}]
-Example multi-service: [{"serviceId":"gmail","serviceName":"Gmail","actionId":"GMAIL_READ_EMAILS","params":{"query":"invoices","maxResults":5}},{"serviceId":"googlesheets","serviceName":"Google Sheets","actionId":"GOOGLE_SHEETS_UPDATE_SHEET","params":{"spreadsheetId":"","range":"A1","values":"[[\"data\"]]","_dependsOnPreviousStep":true}}]"""
+Example multi-service: [{"serviceId":"gmail","serviceName":"Gmail","actionId":"GMAIL_FETCH_EMAILS","params":{"query":"invoices","maxResults":5}},{"serviceId":"googlesheets","serviceName":"Google Sheets","actionId":"GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND","params":{"spreadsheetId":"","range":"A1","values":"[[\"data\"]]","_dependsOnPreviousStep":true}}]"""
 
         val response = groqClient.sendMessage(message = prompt, history = emptyList())
             .getOrDefault("")
@@ -1388,7 +1400,7 @@ Return ONLY valid JSON (no markdown, no explanation):
 {"actionId":"WHATSAPP_SEND_MESSAGE","params":{"to_number":"royal","text":"hi","phone_number_id":"$WHATSAPP_PHONE_NUMBER_ID"}}
 {"actionId":"GMAIL_SEND_EMAIL","params":{"to":"john@example.com","subject":"Hello","body":"Hi there"}}
 {"actionId":"INSTAGRAM_SEND_TEXT_MESSAGE","params":{"recipient_id":"royal","text":"Hello"}}
-{"actionId":"DISCORD_SEND_A_MESSAGE_TO_A_CHANNEL","params":{"content":"Hello everyone"}}
+{"actionId":"DISCORDBOT_CREATE_MESSAGE","params":{"content":"Hello everyone"}}
 {"actionId":"GITHUB_CREATE_AN_ISSUE","params":{"title":"Bug report","body":"Something is broken"}}"""
 
         val response = groqClient.sendMessage(message = prompt, history = emptyList())
@@ -1446,16 +1458,16 @@ Return ONLY valid JSON (no markdown, no explanation):
                 lower.contains("issue") && lower.contains("create") -> "GITHUB_CREATE_AN_ISSUE" to mapOf(
                     "owner" to "", "repo" to "", "title" to instruction
                 )
-                lower.contains("repo") && lower.contains("create") -> "GITHUB_CREATE_A_REPOSITORY" to mapOf(
+                lower.contains("repo") && lower.contains("create") -> "GITHUB_CREATE_A_REPOSITORY_FOR_THE_AUTHENTICATED_USER" to mapOf(
                     "name" to "new-repo", "private" to false
                 )
-                else -> "GITHUB_LIST_REPOSITORIES_FOR_AUTHENTICATED_USER" to emptyMap()
+                else -> "GITHUB_LIST_ACCESSIBLE_REPOSITORIES" to emptyMap()
             }
-            "discord" -> "DISCORD_SEND_A_MESSAGE_TO_A_CHANNEL" to mapOf("content" to instruction)
-            "linkedin" -> "LINKEDIN_CREATE_A_POST" to mapOf("text" to instruction)
-            "reddit" -> "REDDIT_CREATE_A_POST" to mapOf("title" to instruction, "text" to instruction)
-            "googledrive" -> "GOOGLE_DRIVE_UPLOAD_FILE" to mapOf("content" to instruction)
-            "googlesheets" -> "GOOGLE_SHEETS_READ_SHEET" to mapOf("spreadsheetId" to "", "range" to "A1:Z100")
+            "discord" -> "DISCORDBOT_CREATE_MESSAGE" to mapOf("content" to instruction)
+            "linkedin" -> "LINKEDIN_CREATE_LINKED_IN_POST" to mapOf("text" to instruction)
+            "reddit" -> "REDDIT_CREATE_REDDIT_POST" to mapOf("title" to instruction, "text" to instruction)
+            "googledrive" -> "GOOGLEDRIVE_CREATE_FILE_FROM_TEXT" to mapOf("content" to instruction)
+            "googlesheets" -> "GOOGLESHEETS_VALUES_GET" to mapOf("spreadsheetId" to "", "range" to "A1:Z100")
             "whatsapp" -> {
                 val toRegex = Regex("""(?:to|send\s+.*?\s+to)\s+([\w\s]+?)(?:\s+saying|\s+message|\s+that|\s+about|\s|$)""", RegexOption.IGNORE_CASE)
                 val msgRegex = Regex("""(?:send|message|saying)\s+(.+?)(?:\s+to\s+|$)""", RegexOption.IGNORE_CASE)
@@ -1471,7 +1483,7 @@ Return ONLY valid JSON (no markdown, no explanation):
             }
             "instagram" -> "INSTAGRAM_SEND_TEXT_MESSAGE" to mapOf("recipient_id" to INSTAGRAM_DEFAULT_PSID, "text" to instruction)
             "facebook" -> "FACEBOOK_CREATE_POST" to mapOf("message" to instruction)
-            "youtube" -> "YOUTUBE_UPLOAD_A_VIDEO" to mapOf("title" to instruction, "description" to "")
+            "youtube" -> "YOUTUBE_UPLOAD_VIDEO" to mapOf("title" to instruction, "description" to "")
             else -> null
         }
     }
@@ -1670,7 +1682,7 @@ Return ONLY valid JSON (no markdown, no explanation):
                 p.remove("name")?.let { p.putIfAbsent("title", it) }
             }
 
-            actionId.startsWith("GOOGLE_DRIVE") -> {
+            actionId.startsWith("GOOGLEDRIVE") -> {
                 // Composio expects "file_name" + "content" for Drive uploads
                 p.remove("filename")?.let { p.putIfAbsent("file_name", it) }
                 p.remove("name")?.let { p.putIfAbsent("file_name", it) }
@@ -1681,7 +1693,7 @@ Return ONLY valid JSON (no markdown, no explanation):
                 p.remove("data")?.let { p.putIfAbsent("content", it) }
             }
 
-            actionId.startsWith("GOOGLE_SHEETS") -> {
+            actionId.startsWith("GOOGLESHEETS") -> {
                 // Composio expects "spreadsheet_id" + "range" for Sheets
                 p.remove("spreadsheetId")?.let { p.putIfAbsent("spreadsheet_id", it) }
                 p.remove("sheet_id")?.let { p.putIfAbsent("spreadsheet_id", it) }
