@@ -98,5 +98,12 @@ object EncryptedPrefs {
         fun remove(key: String) {
             prefs.edit().remove(key).apply()
         }
+
+        /**
+         * Returns the (unencrypted) set of all keys currently stored.
+         * Used by cache-clear operations — never decrypts values, only
+         * enumerates key names so callers can decide which to remove.
+         */
+        fun allKeys(): Set<String> = prefs.all.keys
     }
 }

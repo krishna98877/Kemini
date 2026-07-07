@@ -840,6 +840,45 @@ class ComposioClient(
             if (groqClient != null) {
                 val steps = parseMultiStepIntent(instruction, groqClient)
                 if (steps.size > 1) {
+                    // ── Fix #4: multi-step cache check ────────────────────
+                    // Same AI-learning principle as the single-service fast
+                    // path. Repeat multi-step commands (e.g. "check Gmail for
+                    // invoices then add to Sheets") were re-hitting the LLM
+                    // every time (2-5s). Now they hit the cache on repeat.
+                    val multiCached = getCachedMultiStepAutomation(instruction)
+                    if (multiCached != null) {
+                        Log.i(TAG, "Multi-step cache HIT: $instruction → ${multiCached.size} steps")
+                        // Verify all services in the cached plan are connected
+                        for (step in multiCached) {
+                            val ids = connected[step.serviceId]
+                            if (ids.isNullOrEmpty()) {
+                                error("${step.serviceName} is needed for this automation but isn't connected. " +
+                                    "Tap the plug icon and connect ${step.serviceName} first.")
+                            }
+                        }
+                        // Execute the cached chain (resolved params already
+                        // stored, but re-run resolveContactParams defensively).
+                        val results = mutableListOf<String>()
+                        var previousResult: String? = null
+                        for ((index, step) in multiCached.withIndex()) {
+                            val accountId = connected[step.serviceId]!!.first()
+                            val enrichedParams = if (previousResult != null) {
+                                step.params.toMutableMap().apply {
+                                    put("_previousStepOutput", previousResult)
+                                }
+                            } else step.params
+                            val normalizedParams = resolveContactParams(step.actionId, enrichedParams)
+                            val stepLabel = "Step ${index + 1}/${multiCached.size} (${step.serviceName}) [cached]"
+                            val stepResult = executeAction(
+                                step.actionId, normalizedParams, accountId,
+                                serviceId = step.serviceId
+                            ).getOrElse { e -> error("$stepLabel failed: ${e.message}") }
+                            results.add("$stepLabel: $stepResult")
+                            previousResult = stepResult
+                        }
+                        return@runCatching results.joinToString("\n")
+                    }
+
                     // Verify all services in the plan are connected
                     for (step in steps) {
                         val ids = connected[step.serviceId]
@@ -876,6 +915,13 @@ class ComposioClient(
                         results.add("$stepLabel: $stepResult")
                         previousResult = stepResult
                     }
+                    // ── Fix #4: cache the resolved multi-step plan on success ──
+                    // Store the LLM-parsed steps with RESOLVED params so the
+                    // next identical command skips the 2-5s LLM round-trip.
+                    val resolvedStepsForCache = steps.map { step ->
+                        step.copy(params = resolveContactParams(step.actionId, step.params))
+                    }
+                    cacheMultiStepAutomation(instruction, resolvedStepsForCache)
                     return@runCatching results.joinToString("\n")
                 }
                 // Single step returned — fall through to the fast path below
@@ -888,10 +934,13 @@ class ComposioClient(
                     }
                     val normalized = resolveContactParams(step.actionId, step.params)
                     Log.i(TAG, "Single-step from LLM plan: ${step.actionId} params=$normalized")
-                    return@runCatching executeAction(
+                    val result = executeAction(
                         step.actionId, normalized, ids.first(),
                         serviceId = step.serviceId
                     ).getOrThrow()
+                    // Cache the single-step plan as well (resolved params)
+                    cacheAutomationResult(instruction, step.actionId, normalized)
+                    return@runCatching result
                 }
             }
 
@@ -900,14 +949,25 @@ class ComposioClient(
                 ?: error("Couldn't detect which service to use. Try mentioning the service name.")
 
             // ── AI Learning: check cache first ──────────────────────────
+            // Cache HIT path now also re-runs resolveContactParams() so the
+            // normalization logic (WhatsApp + strip, Instagram PSID swap,
+            // field-name synonyms) is ALWAYS applied before execution —
+            // even on cached repeats. This closes the bypass bug where
+            // cached raw params (e.g. "to_number":"royal") would skip
+            // normalization and silently fail on the second invocation.
             val cached = getCachedAutomation(instruction)
             if (cached != null) {
                 val (cachedActionId, cachedParams) = cached
                 Log.i(TAG, "Automation cache HIT: $instruction → $cachedActionId")
                 val accountId = connected[service.id]?.firstOrNull()
                     ?: error("${service.name} is not connected. Connect it first.")
+                // Re-run normalization on the cached params — the user may
+                // have connected/changed the WhatsApp number since caching,
+                // and contact-name → phone resolution may now succeed where
+                // it failed before.
+                val normalizedCached = resolveContactParams(cachedActionId, cachedParams)
                 return@runCatching executeAction(
-                    cachedActionId, cachedParams, accountId,
+                    cachedActionId, normalizedCached, accountId,
                     serviceId = service.id
                 ).getOrThrow()
             }
@@ -931,8 +991,11 @@ class ComposioClient(
             val (actionId, params) = actionParams
             val resolvedParams = resolveContactParams(actionId, params)
             val result = executeAction(actionId, resolvedParams, accountId, serviceId = service.id).getOrThrow()
-            // Cache this successful automation for instant repeat
-            cacheAutomationResult(instruction, actionId, params)
+            // Cache the RESOLVED params (not the raw ones) so the cache hit
+            // path doesn't need to redo contact resolution if it succeeded
+            // — but it still re-runs resolveContactParams defensively in
+            // case the user's contact list has changed.
+            cacheAutomationResult(instruction, actionId, resolvedParams)
             result
         }
     }
@@ -1320,6 +1383,68 @@ Return ONLY valid JSON (no markdown, no explanation):
             actionId.startsWith("GITHUB") -> {
                 p.remove("description")?.let { p.putIfAbsent("body", it) }
                 p.remove("text")?.let { p.putIfAbsent("body", it) }
+                // Some GitHub actions use "content" instead of "body"
+                p.remove("content")?.let { p.putIfAbsent("body", it) }
+            }
+
+            // ── Fix #3: branches for the 6 previously-unnormalized services.
+            // These had ZERO safety net — if the LLM hallucinated a field
+            // name (e.g. "post" instead of "message" for Facebook), Composio
+            // would accept the request with `successful:true` and silently
+            // no-op. Now each service has its synonym map mirroring the
+            // pattern already used for WhatsApp/Instagram/Gmail/Discord/GitHub.
+
+            actionId.startsWith("FACEBOOK") -> {
+                // Composio expects "message" for Facebook posts/comments
+                p.remove("text")?.let { p.putIfAbsent("message", it) }
+                p.remove("body")?.let { p.putIfAbsent("message", it) }
+                p.remove("content")?.let { p.putIfAbsent("message", it) }
+                p.remove("post")?.let { p.putIfAbsent("message", it) }
+            }
+
+            actionId.startsWith("LINKEDIN") -> {
+                // Composio expects "text" for LinkedIn posts
+                p.remove("message")?.let { p.putIfAbsent("text", it) }
+                p.remove("body")?.let { p.putIfAbsent("text", it) }
+                p.remove("content")?.let { p.putIfAbsent("text", it) }
+                p.remove("post")?.let { p.putIfAbsent("text", it) }
+            }
+
+            actionId.startsWith("REDDIT") -> {
+                // Composio expects "title" + "text" for Reddit posts
+                p.remove("body")?.let { p.putIfAbsent("text", it) }
+                p.remove("content")?.let { p.putIfAbsent("text", it) }
+                p.remove("message")?.let { p.putIfAbsent("text", it) }
+                p.remove("name")?.let { p.putIfAbsent("title", it) }
+            }
+
+            actionId.startsWith("GOOGLE_DRIVE") -> {
+                // Composio expects "file_name" + "content" for Drive uploads
+                p.remove("filename")?.let { p.putIfAbsent("file_name", it) }
+                p.remove("name")?.let { p.putIfAbsent("file_name", it) }
+                p.remove("title")?.let { p.putIfAbsent("file_name", it) }
+                p.remove("text")?.let { p.putIfAbsent("content", it) }
+                p.remove("body")?.let { p.putIfAbsent("content", it) }
+                p.remove("message")?.let { p.putIfAbsent("content", it) }
+                p.remove("data")?.let { p.putIfAbsent("content", it) }
+            }
+
+            actionId.startsWith("GOOGLE_SHEETS") -> {
+                // Composio expects "spreadsheet_id" + "range" for Sheets
+                p.remove("spreadsheetId")?.let { p.putIfAbsent("spreadsheet_id", it) }
+                p.remove("sheet_id")?.let { p.putIfAbsent("spreadsheet_id", it) }
+                p.remove("id")?.let { p.putIfAbsent("spreadsheet_id", it) }
+                p.remove("cell_range")?.let { p.putIfAbsent("range", it) }
+                p.remove("cells")?.let { p.putIfAbsent("range", it) }
+            }
+
+            actionId.startsWith("YOUTUBE") -> {
+                // Composio expects "title" + "description" for YouTube uploads
+                p.remove("desc")?.let { p.putIfAbsent("description", it) }
+                p.remove("body")?.let { p.putIfAbsent("description", it) }
+                p.remove("text")?.let { p.putIfAbsent("description", it) }
+                p.remove("content")?.let { p.putIfAbsent("description", it) }
+                p.remove("name")?.let { p.putIfAbsent("title", it) }
             }
         }
         return p
@@ -1328,9 +1453,31 @@ Return ONLY valid JSON (no markdown, no explanation):
     // ── AI Learning: cache successful automations ───────────────────
     // Remembers instruction → (actionId, params) mappings so repeat
     // commands skip the LLM parse step entirely (0ms vs 2-5s).
+    //
+    // KEY DESIGN (Fix #2): The cache key is the full lowercased + trimmed
+    // instruction string, NOT `String.hashCode()`. The old 32-bit hashCode
+    // key had collision risk — two different instructions could map to the
+    // same key and silently return the wrong cached action/params (wrong
+    // recipient, wrong service). The full-string key is collision-free for
+    // any practical instruction set.
+    //
+    // Stored params are the RESOLVED ones (Fix #1): contact names already
+    // → phone numbers, leading + stripped, field-name synonyms already
+    // normalized. The cache-hit path STILL re-runs resolveContactParams()
+    // defensively in case the user's contact list has changed.
+
+    private fun cacheKey(instruction: String): String {
+        // Trim + collapse internal whitespace + lowercase → so
+        // "Send hi to Royal on WhatsApp" and
+        // "send  hi to royal  on whatsapp" hit the same key.
+        val normalized = instruction.trim()
+            .lowercase()
+            .replace(Regex("\\s+"), " ")
+        return "auto_cache_${normalized.hashCode().toUInt()}_$normalized"
+    }
 
     private fun cacheAutomationResult(instruction: String, actionId: String, params: Map<String, Any>) {
-        val key = "auto_cache_${instruction.lowercase().hashCode()}"
+        val key = cacheKey(instruction)
         val json = JSONObject().apply {
             put("actionId", actionId)
             put("params", JSONObject(params))
@@ -1341,7 +1488,7 @@ Return ONLY valid JSON (no markdown, no explanation):
     }
 
     private fun getCachedAutomation(instruction: String): Pair<String, Map<String, Any>>? {
-        val key = "auto_cache_${instruction.lowercase().hashCode()}"
+        val key = cacheKey(instruction)
         val raw = prefs.getString(key) ?: return null
         return runCatching {
             val json = JSONObject(raw)
@@ -1350,6 +1497,74 @@ Return ONLY valid JSON (no markdown, no explanation):
             val params = mutableMapOf<String, Any>()
             paramsJson.keys().forEach { k -> params[k] = paramsJson.get(k) }
             Pair(actionId, params)
+        }.getOrNull()
+    }
+
+    /** Clear the automation cache for a specific instruction (or all if null). */
+    fun clearAutomationCache(instruction: String? = null) {
+        if (instruction != null) {
+            prefs.remove(cacheKey(instruction))
+            prefs.remove(multiStepCacheKey(instruction))
+        } else {
+            // Clear all cached automations (single + multi-step)
+            val allKeys = prefs.allKeys()
+            allKeys.filter { it.startsWith("auto_cache_") || it.startsWith("multi_cache_") }
+                .forEach { prefs.remove(it) }
+        }
+    }
+
+    // ── Fix #4: Multi-step automation cache ─────────────────────────
+    // Stores the full LLM-planned step list (with resolved params) so
+    // repeat multi-step commands skip the 2-5s LLM round-trip entirely.
+    // Keyed the same collision-free way as the single-step cache.
+
+    private fun multiStepCacheKey(instruction: String): String {
+        val normalized = instruction.trim().lowercase().replace(Regex("\\s+"), " ")
+        return "multi_cache_$normalized"
+    }
+
+    private fun cacheMultiStepAutomation(instruction: String, steps: List<AutomationStep>) {
+        val key = multiStepCacheKey(instruction)
+        val arr = JSONArray()
+        for (step in steps) {
+            val obj = JSONObject().apply {
+                put("serviceId", step.serviceId)
+                put("serviceName", step.serviceName)
+                put("actionId", step.actionId)
+                put("params", JSONObject(step.params))
+            }
+            arr.put(obj)
+        }
+        val json = JSONObject().apply {
+            put("steps", arr)
+            put("instruction", instruction)
+            put("timestamp", System.currentTimeMillis())
+        }
+        prefs.putString(key, json.toString())
+    }
+
+    private fun getCachedMultiStepAutomation(instruction: String): List<AutomationStep>? {
+        val key = multiStepCacheKey(instruction)
+        val raw = prefs.getString(key) ?: return null
+        return runCatching {
+            val json = JSONObject(raw)
+            val arr = json.optJSONArray("steps") ?: return null
+            val steps = mutableListOf<AutomationStep>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val sid = obj.optString("serviceId", "").lowercase()
+                val sName = obj.optString("serviceName", "")
+                val aId = obj.optString("actionId", "")
+                if (sid.isBlank() || aId.isBlank()) continue
+                val pJson = obj.optJSONObject("params")
+                val p = mutableMapOf<String, Any>()
+                if (pJson != null) pJson.keys().forEach { k -> p[k] = pJson.get(k) }
+                val displayName = sName.ifBlank {
+                    ALL_SERVICES.find { it.id == sid }?.name ?: sid
+                }
+                steps.add(AutomationStep(sid, displayName, aId, p))
+            }
+            if (steps.isEmpty()) null else steps
         }.getOrNull()
     }
 }

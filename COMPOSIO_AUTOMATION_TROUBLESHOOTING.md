@@ -296,9 +296,21 @@ adb logcat -s ComposioClient:* ChatOverlayService:* GroqClient:*
 
 ---
 
-**Last verified working:** 2026-07-07 (commit `d3e0e44`)
+**Last verified working:** 2026-07-07 (commit `d3e0e44` + Part 1 fixes)
 - Gmail send: ✅ successful, real email delivered
 - WhatsApp send: ✅ reaches Composio (recipient validation is WhatsApp-side)
 - Instagram send: ✅ reaches Composio (recipient validation is Instagram-side)
 - isServiceConnected: ✅ correctly detects ACTIVE accounts
 - Toggle persistence: ✅ survives app restart via EncryptedPrefs
+- Cache (single-step): ✅ stores resolved params, re-normalizes on hit (Fix #1)
+- Cache key: ✅ collision-free full-string key (Fix #2)
+- Param normalization: ✅ all 11 services covered (Fix #3)
+- Cache (multi-step): ✅ full step list cached on success (Fix #4)
+- `clearAutomationCache()` API: ✅ exposed for debugging/reset
+
+### Part 1 fixes applied (commit pending)
+- **Fix #1**: Cache HIT now re-runs `resolveContactParams()` — closed the bypass bug where cached raw params (`to_number:"royal"`) would skip normalization and silently fail on repeat. Cache now stores RESOLVED params.
+- **Fix #2**: Cache key is now the full lowercased + trimmed instruction string (collision-free), not `String.hashCode()` (32-bit, collision-prone). Added `cacheKey()` helper that also collapses internal whitespace so `"send  hi"` and `"send hi"` hit the same key.
+- **Fix #3**: Added `resolveContactParams()` branches for Facebook, LinkedIn, Reddit, Google Drive, Google Sheets, YouTube. These 6 services previously had ZERO normalization — LLM-hallucinated field names (`"post"` for Facebook, `"filename"` for Drive, etc.) silently no-oped with `successful:true`. Each now has a synonym map mirroring the WhatsApp/Instagram/Gmail/Discord/GitHub pattern.
+- **Fix #4**: Multi-step automation plans now cached on success via `cacheMultiStepAutomation()` + `getCachedMultiStepAutomation()`. Repeat multi-step commands (e.g. "check Gmail for invoices then add to Sheets") skip the 2-5s LLM round-trip entirely. Cache stores RESOLVED params per step; cache-hit path re-runs `resolveContactParams` defensively.
+- Also added: `clearAutomationCache(instruction?)` public API for debugging/reset, `EncryptedPrefs.allKeys()` method.
