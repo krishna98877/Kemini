@@ -1,7 +1,7 @@
 # Stremini AI — Complete Product & Technical Overview
 
 > **Version 1.0.0** | Android | Flutter + Kotlin | Groq LLM + Composio Automation  
-> **Repository:** [github.com/krishna98877/Kemini](https://github.com/krishna98877/Kemini)
+> **Repository:** [github.com/krishna98877/Stremini.ai](https://github.com/krishna98877/Stremini.ai)
 
 ---
 
@@ -26,7 +26,7 @@
 
 Stremini AI is an Android AI keyboard and system-wide assistant that brings the power of large language models directly into every app on your phone. Unlike traditional AI chatbots that live inside a single app, Stremini operates as a **floating overlay** accessible from any screen, combined with a **full AI-powered keyboard** that can rewrite, translate, correct, and complete text in real time — in WhatsApp, Gmail, Instagram, or any other app.
 
-The product integrates **Groq's ultra-fast LLM inference** for chat and keyboard intelligence, and **Composio's managed authentication platform** for seamless third-party service automation — enabling users to send emails, post tweets, manage GitHub repos, and interact with 15+ services directly through natural language, all without ever providing API keys.
+The product integrates **Groq's ultra-fast LLM inference** for chat and keyboard intelligence, and **Composio's managed authentication platform** for seamless third-party service automation — enabling users to send emails, post to social media, manage GitHub repos, and interact with 11 services directly through natural language, all without ever providing API keys.
 
 **Key differentiators:**
 - AI that lives **outside** any single app — a true system-wide assistant
@@ -77,7 +77,7 @@ A complete replacement keyboard with:
 
 ### 3.3 Service Automation Engine
 
-Connect 15+ services (Gmail, GitHub, Twitter/X, Discord, Google Drive, and more) through Composio's managed OAuth. Once connected, simply tell the AI what you want — "Send an email to John about the meeting tomorrow" — and it handles the entire flow: intent parsing, API call, authentication, and execution.
+Connect 11 services (Gmail, GitHub, WhatsApp, Discord, Google Drive, Instagram, and more) through Composio's managed OAuth. Once connected, simply tell the AI what you want — "Send an email to John about the meeting tomorrow" — and it handles the entire flow: intent parsing, API call, authentication, and execution.
 
 ---
 
@@ -105,7 +105,7 @@ Connect 15+ services (Gmail, GitHub, Twitter/X, Discord, Google Drive, and more)
 
 ### 4.3 Composio Automation
 
-- **15+ supported services** — GitHub, Gmail, Telegram, Twitter/X, Instagram, Facebook, WhatsApp, Chrome, Google Drive, Discord, LinkedIn, Reddit, Google Sheets, YouTube, TikTok
+- **11 supported services** — GitHub, Gmail, Instagram, Facebook, WhatsApp, Google Drive, Discord, LinkedIn, Reddit, Google Sheets, YouTube (only services with Composio-managed OAuth are included; Telegram/Twitter/TikTok were removed because they have no managed auth flow)
 - **Natural language commands** — "Create a GitHub issue titled Bug fix" or "Send a Gmail to team@company.com"
 - **Multi-step chaining** — Complex requests are broken into sequential steps, with each step's output feeding into the next
 - **Managed OAuth** — Users log in with their own credentials via a secure WebView. No API keys ever touch the device
@@ -187,7 +187,7 @@ Connect 15+ services (Gmail, GitHub, Twitter/X, Discord, Google Drive, and more)
 | **Floating overlay AI** | ✅ System-wide | ❌ | ❌ | ❌ | ❌ |
 | **AI chat in any app** | ✅ | ❌ | ❌ | ❌ (siloed) | ❌ |
 | **Keyboard AI (rewrite/translate)** | ✅ 5 tones + 30 langs | Basic predict only | Basic predict only | ❌ | ✅ English only |
-| **Service automation** | ✅ 15+ services | ❌ | ❌ | ❌ (plugins limited) | ❌ |
+| **Service automation** | ✅ 11 services | ❌ | ❌ | ❌ (plugins limited) | ❌ |
 | **Multi-step chaining** | ✅ | ❌ | ❌ | ✅ (chat only) | ❌ |
 | **Voice typing** | ✅ 14 languages | ✅ | ✅ | ✅ | ❌ |
 | **Document/PDF chat** | ✅ OCR + PDF | ❌ | ❌ | ✅ | ❌ |
@@ -298,7 +298,7 @@ Developer's Consumer Key (embedded at build time)
           │ User logs in
           ▼
 ┌─────────────────────┐
-│  Service Provider   │ ◄── GitHub / Gmail / Twitter etc.
+│  Service Provider   │ ◄── GitHub / Gmail / WhatsApp etc.
 │  (OAuth Provider)   │
 └─────────┬───────────┘
           │ Token stored by Composio
@@ -421,7 +421,7 @@ Per-use-case in-memory rate limiters (sliding window):
 | **Chat Model** | Llama 3.3 70B Versatile |
 | **Keyboard Model** | Llama 3.1 8B Instant |
 | **Automation** | Composio Managed Auth (backend.composio.dev) |
-| **Supported Services** | 15 (GitHub, Gmail, Telegram, Twitter/X, Instagram, Facebook, WhatsApp, Chrome, Google Drive, Discord, LinkedIn, Reddit, Google Sheets, YouTube, TikTok) |
+| **Supported Services** | 11 (GitHub, Gmail, Instagram, Facebook, WhatsApp, Google Drive, Discord, LinkedIn, Reddit, Google Sheets, YouTube) |
 
 ### Project Structure
 
@@ -510,25 +510,25 @@ Streminiai--main/
 
 ## 10. Supported Integrations
 
-All 15 services use Composio's managed OAuth — users log in with their own credentials via a secure WebView. No API keys are stored on the device.
+All 11 services use Composio's managed OAuth — users log in with their own credentials via a secure WebView. No API keys are stored on the device.
 
 | Service | Actions | Keywords Detected |
 |---------|---------|-------------------|
 | **GitHub** | Create issues, manage repos, commits, branches | pull request, repository, commit, issue, github |
 | **Gmail** | Send emails, read inbox, manage drafts | send email, email, mail, inbox, gmail |
-| **Telegram** | Send messages, manage channels | telegram message, telegram chat, telegram |
-| **Twitter/X** | Post tweets, manage timeline | post tweet, tweet, twitter, x.com |
 | **Instagram** | Create posts, stories, reels, DMs | instagram story, instagram post, instagram |
 | **Facebook** | Create posts, manage pages, groups | facebook post, facebook page, facebook |
 | **WhatsApp** | Send messages | whatsapp message, whatsapp |
-| **Chrome** | Open URLs, search, manage tabs | browser, open url, chrome, search |
 | **Google Drive** | Upload files, manage folders | google drive, drive file, upload |
 | **Discord** | Send messages, manage servers/channels | discord server, discord channel, discord |
 | **LinkedIn** | Manage profile, connections, jobs, posts | linkedin profile, linkedin post, linkedin |
 | **Reddit** | Post, comment, manage subreddits | subreddit, reddit post, reddit |
 | **Google Sheets** | Read/write cells, manage spreadsheets | google sheets, spreadsheet, sheet |
 | **YouTube** | Upload videos, manage channels, comments | youtube, upload video, subscribe |
-| **TikTok** | Create posts, manage account | tiktok, tiktok video, duet |
+
+> **Note:** Telegram, Twitter/X, and TikTok are not supported because they
+> do not offer Composio-managed OAuth. End users cannot reliably log in to
+> these services from the device.
 
 ---
 
@@ -544,23 +544,27 @@ All 15 services use Composio's managed OAuth — users log in with their own cre
 ### Setup
 
 ```bash
-git clone https://github.com/krishna98877/Kemini.git
-cd Kemini/android
+git clone https://github.com/krishna98877/Stremini.ai.git
+cd Stremini.ai
 
-# Create local.properties with Composio key
-cp local.properties.example local.properties
+# Create local.properties with your own API keys (NEVER commit this file)
+cp android/local.properties.example android/local.properties
+# Edit android/local.properties and fill in your Groq + Composio keys
 
-cd ..
 flutter pub get
-flutter build apk --release
+flutter build apk --release --dart-define=GROQ_API_KEY=gsk_your_key_here
 ```
 
 ### Configuration
 
-**`android/local.properties`:**
+**`android/local.properties`** (gitignored — see `android/local.properties.example` for the full template):
 ```properties
 flutter.sdk=/path/to/flutter/sdk
-composio.consumer.key=ck__YOUR_KEY_HERE
+groq.api.key=gsk_your_groq_api_key
+composio.consumer.key=ak_your_composio_api_key
+auth.config.github=ac_your_github_auth_config_id
+auth.config.gmail=ac_your_gmail_auth_config_id
+# ... one per service you want to enable
 ```
 
 The Composio consumer key is embedded at build time via `BuildConfig.COMPOSIO_CONSUMER_KEY`. Set it in `local.properties` (gitignored) or via the `COMPOSIO_CONSUMER_KEY` environment variable.
@@ -598,4 +602,4 @@ The release build uses ProGuard obfuscation (`isMinifyEnabled = true`) and resou
 
 ---
 
-*Built with Flutter, Kotlin, Groq, and Composio. Open source at [github.com/krishna98877/Kemini](https://github.com/krishna98877/Kemini).*
+*Built with Flutter, Kotlin, Groq, and Composio. Open source at [github.com/krishna98877/Stremini.ai](https://github.com/krishna98877/Stremini.ai).*
