@@ -263,7 +263,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _maybeHaptic(ref.read(appSettingsProvider).hapticFeedback);
     try {
       final composioAsync = ref.read(composioServiceProvider);
-      final manager = await composioAsync;
+      final manager = composioAsync.valueOrNull;
+      if (manager == null) {
+        debugPrint('ComposioServiceManager not ready yet');
+        return;
+      }
       if (!mounted) return;
       await ConnectorsPanel.show(context, manager);
     } catch (e) {
