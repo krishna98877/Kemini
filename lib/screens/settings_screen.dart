@@ -5,7 +5,9 @@ import 'package:url_launcher/url_launcher.dart' as url_launcher;
 import '../core/localization/app_strings.dart';
 import '../core/theme/app_colors.dart';
 import '../providers/app_settings_provider.dart';
+import '../providers/chat_provider.dart';
 import '../services/keyboard_service.dart';
+import '../features/connectors/connectors_panel.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -237,7 +239,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: _connectAutomations,
+              onPressed: _openConnectorsPanel,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF38BDF8),
                 foregroundColor: Colors.white,
@@ -247,7 +249,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
               child: const Text(
-                'Connect Automations',
+                'Manage Connectors',
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
@@ -257,17 +259,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  Future<void> _connectAutomations() async {
+  Future<void> _openConnectorsPanel() async {
     _maybeHaptic(ref.read(appSettingsProvider).hapticFeedback);
-    const url = 'https://app.composio.dev';
     try {
-      final bool success = await const MethodChannel('stremini.composio')
-          .invokeMethod('openComposioConnect');
-      if (!success) {
-        await url_launcher.launchUrl(Uri.parse(url), mode: url_launcher.LaunchMode.externalApplication);
-      }
+      final composioAsync = ref.read(composioServiceProvider);
+      final manager = await composioAsync;
+      if (!mounted) return;
+      await ConnectorsPanel.show(context, manager);
     } catch (e) {
-      await url_launcher.launchUrl(Uri.parse(url), mode: url_launcher.LaunchMode.externalApplication);
+      debugPrint('Failed to open connectors panel: $e');
     }
   }
 
