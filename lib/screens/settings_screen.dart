@@ -263,7 +263,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _maybeHaptic(ref.read(appSettingsProvider).hapticFeedback);
     try {
       final composioAsync = ref.read(composioServiceProvider);
-      final manager = composioAsync.valueOrNull;
+      final manager = composioAsync.maybeWhen(data: (m) => m, orElse: () => null);
       if (manager == null) {
         debugPrint('ComposioServiceManager not ready yet');
         return;
