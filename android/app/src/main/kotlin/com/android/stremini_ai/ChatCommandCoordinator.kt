@@ -87,9 +87,6 @@ class ChatCommandCoordinator(
                         }
                         .onFailure { error ->
                             // ── Retry logic: don't show failure immediately ──
-                            // First attempt failed. Tell the user we're retrying,
-                            // wait a moment, then try once more. Only if the second
-                            // attempt also fails do we show the error.
                             val errorMsg = error.message ?: "Unknown error"
                             // Don't retry on permanent errors (auth, permission, not-connected)
                             val isPermanentError = errorMsg.contains("not connected", ignoreCase = true) ||
@@ -99,7 +96,7 @@ class ChatCommandCoordinator(
                             if (isPermanentError) {
                                 // Don't retry — just tell the user what went wrong
                                 addToHistory("assistant", "Automation failed: $errorMsg")
-                                onBotMessage("Hmm, that didn't work. $errorMsg Want me to try a different approach?")
+                                onBotMessage("I couldn't do that — $errorMsg. Try connecting ${detectedService.name} in Settings → Manage Connectors first.")
                                 return@launch
                             }
                             // Retryable error — tell the user we're trying again
@@ -114,10 +111,24 @@ class ChatCommandCoordinator(
                                     onBotMessage(reply)
                                 }
                                 .onFailure { error2 ->
-                                    // Second attempt also failed — show a helpful message
+                                    // Second attempt also failed — show a helpful, specific message
                                     val finalError = error2.message ?: "Unknown error"
                                     addToHistory("assistant", "Automation failed after retry: $finalError")
-                                    onBotMessage("I tried twice but couldn't complete that. The error was: $finalError. You could try rephrasing, or check that ${detectedService.name} is properly connected in Settings → Manage Connectors.")
+                                    // Give the user an actionable message
+                                    val userMsg = when {
+                                        finalError.contains("403", ignoreCase = true) || finalError.contains("Forbidden", ignoreCase = true) ->
+                                            "The AI brain seems to be blocked. Try again later or check your network."
+                                        finalError.contains("401", ignoreCase = true) || finalError.contains("Unauthorized", ignoreCase = true) ->
+                                            "${detectedService.name} needs to be reconnected. Go to Settings → Manage Connectors."
+                                        finalError.contains("429", ignoreCase = true) || finalError.contains("rate", ignoreCase = true) ->
+                                            "Too many requests right now. Please wait a moment and try again."
+                                        finalError.contains("timeout", ignoreCase = true) || finalError.contains("timed out", ignoreCase = true) ->
+                                            "The request timed out. Check your network and try again."
+                                        finalError.contains("Couldn't understand", ignoreCase = true) ->
+                                            "I couldn't figure out what you want to do. Try being more specific, like 'send an email to john@example.com saying hello'."
+                                        else -> "I tried twice but couldn't complete that. Error: $finalError"
+                                    }
+                                    onBotMessage(userMsg)
                                 }
                         }
                 } else {

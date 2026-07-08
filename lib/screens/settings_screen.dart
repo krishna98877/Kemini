@@ -263,9 +263,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _maybeHaptic(ref.read(appSettingsProvider).hapticFeedback);
     try {
       final composioAsync = ref.read(composioServiceProvider);
-      final manager = composioAsync.maybeWhen(data: (m) => m, orElse: () => null);
+      ComposioServiceManager? manager = composioAsync.maybeWhen(
+        data: (m) => m,
+        orElse: () => null,
+      );
+      // If still loading, wait briefly and retry
       if (manager == null) {
-        debugPrint('ComposioServiceManager not ready yet');
+        await Future.delayed(const Duration(milliseconds: 800));
+        final retry = ref.read(composioServiceProvider);
+        manager = retry.maybeWhen(data: (m) => m, orElse: () => null);
+      }
+      if (manager == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Connectors still initializing. Please try again in a moment.')),
+        );
         return;
       }
       if (!mounted) return;

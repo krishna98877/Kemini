@@ -1136,7 +1136,13 @@ class ComposioClient(
             val accountId = accountIds.first()
 
             val actionParams = if (groqClient != null) {
+                // Try LLM first (smarter parsing), fall back to keywords if LLM is unreachable.
+                // This is critical: if Groq is down (403, network error, rate limit),
+                // the old code would fail with "Couldn't understand what action to take"
+                // even for simple commands like "send email to X". Now we gracefully
+                // degrade to the regex-based keyword parser which needs NO network.
                 parseIntentWithLLM(instruction, service, groqClient)
+                    ?: parseIntentByKeywords(instruction, service)
             } else {
                 parseIntentByKeywords(instruction, service)
             }
@@ -1430,27 +1436,34 @@ Return ONLY valid JSON (no markdown, no explanation):
 
         return when (service.id) {
             "gmail" -> when {
-                lower.contains("send") && (lower.contains("email") || lower.contains("mail")) -> {
+                lower.contains("send") && (lower.contains("email") || lower.contains("mail") || lower.contains("@")) -> {
                     val toRegex = Regex("(?:to|for)\\s+([\\w.+-]+@[\\w.-]+)", RegexOption.IGNORE_CASE)
                     val toMatch = toRegex.find(instruction)
                     val subjectRegex = Regex("(?:subject|about|re)\\s+[:\"]?([^\".]+)", RegexOption.IGNORE_CASE)
                     val subjectMatch = subjectRegex.find(instruction)
-                    // Extract body: remove the "send email to X about Y" prefix
-                    var bodyHint = instruction
-                    val sendPrefixRegex = Regex("(?i)^.*?(?:send|compose|write)\\s+(?:an?\\s+)?(?:email|mail)\\s+(?:to\\s+[\\w.+-]+@[\\w.-]+\\s*)?", RegexOption.IGNORE_CASE)
-                    val subjectPart = subjectMatch?.groupValues?.get(1)?.trim()
-                    bodyHint = sendPrefixRegex.replace(bodyHint, "").trim()
-                    if (subjectPart != null) {
-                        bodyHint = bodyHint.replace(Regex("(?i)\\b(?:about|subject|re)\\s+[:\"]?\\Q$subjectPart\\E", RegexOption.IGNORE_CASE), "").trim()
+                    // Extract body: try "saying X" or "message X" pattern first,
+                    // then fall back to stripping the prefix.
+                    var bodyHint = ""
+                    val sayingRegex = Regex("(?:saying|message|with body|content)\\s+(.+)", RegexOption.IGNORE_CASE)
+                    val sayingMatch = sayingRegex.find(instruction)
+                    if (sayingMatch != null) {
+                        bodyHint = sayingMatch.groupValues[1].trim()
+                    } else {
+                        // Strip "send (email/mail/hi) to X" prefix to get body
+                        bodyHint = instruction
+                            .replace(Regex("(?i)^(?:send|compose|write)\\s+(?:an?\\s+)?(?:email|mail)?\\s*", RegexOption.IGNORE_CASE), "")
+                            .replace(Regex("(?i)\\s*to\\s+[\\w.+-]+@[\\w.-]+\\s*", RegexOption.IGNORE_CASE), "")
+                            .replace(Regex("(?i)\\s*(?:subject|about|re)\\s+[:\"]?[^\".]+", RegexOption.IGNORE_CASE), "")
+                            .trim()
                     }
-                    if (bodyHint.isBlank()) bodyHint = instruction
+                    if (bodyHint.isBlank()) bodyHint = "Sent from Stremini AI"
                     "GMAIL_SEND_EMAIL" to mapOf(
                         "to" to (toMatch?.groupValues?.get(1) ?: ""),
-                        "subject" to (subjectPart ?: "No subject"),
+                        "subject" to (subjectMatch?.groupValues?.get(1)?.trim() ?: "Message from Stremini AI"),
                         "body" to bodyHint,
                     )
                 }
-                else -> "GMAIL_READ_EMAILS" to mapOf("maxResults" to 10)
+                else -> "GMAIL_FETCH_EMAILS" to mapOf("maxResults" to 10)
             }
             "github" -> when {
                 lower.contains("issue") && lower.contains("create") -> "GITHUB_CREATE_AN_ISSUE" to mapOf(

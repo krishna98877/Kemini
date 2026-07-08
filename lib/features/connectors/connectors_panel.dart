@@ -81,13 +81,30 @@ class _ConnectorsPanelSheetState extends State<_ConnectorsPanelSheet>
     HapticFeedback.lightImpact();
     final connected = widget.manager.isServiceConnected(svc.id);
     setState(() => _connecting = svc.id);
+
     if (connected) {
+      // Disconnect — completes synchronously, refresh immediately
       await widget.manager.disconnectService(svc.id);
+      await widget.manager.refreshServiceStatuses();
+      if (mounted) setState(() => _connecting = null);
     } else {
+      // Connect — opens Chrome for OAuth, returns immediately.
+      // DON'T refresh status yet — OAuth hasn't completed.
+      // The event stream will fire "connection_success" when done,
+      // which triggers refreshServiceStatuses() automatically.
       await widget.manager.connectService(svc.id);
+      // Keep the loading spinner showing until the user comes back from Chrome
+      // and the event stream fires. Give it a 30s timeout.
+      for (int i = 0; i < 30; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+        await widget.manager.refreshServiceStatuses();
+        if (widget.manager.isServiceConnected(svc.id)) {
+          break;  // Connection detected!
+        }
+        if (!mounted) return;
+      }
+      if (mounted) setState(() => _connecting = null);
     }
-    await widget.manager.refreshServiceStatuses();
-    if (mounted) setState(() => _connecting = null);
   }
 
   @override
