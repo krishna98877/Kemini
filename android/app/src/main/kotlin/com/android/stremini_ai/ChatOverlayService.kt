@@ -1002,7 +1002,7 @@ class ChatOverlayService : Service(), View.OnTouchListener {
                     setTextColor(Color.GRAY)
                     serviceScope.launch {
                         composioClient.disconnectService(svc.id)
-                        invalidateConnectedServicesCache()
+                        composioClient.invalidateConnectedServicesCache()
                         android.os.Handler(android.os.Looper.getMainLooper()).post {
                             hideConnectedAppsPanel()
                             showConnectedAppsPanel()  // refresh
