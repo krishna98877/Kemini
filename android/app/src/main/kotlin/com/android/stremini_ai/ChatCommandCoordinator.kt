@@ -94,11 +94,13 @@ class ChatCommandCoordinator(
                                 errorMsg.contains("Permission denied", ignoreCase = true) ||
                                 errorMsg.contains("not configured", ignoreCase = true)
                             if (isPermanentError) {
+                                // Run diagnostic before showing error
+                                val diagnosis = runDiagnostic(detectedService.id, errorMsg)
                                 addToHistory("assistant", "[ERROR] $errorMsg")
-                                onBotMessage("[ERROR] ${detectedService.name}: $errorMsg")
+                                onBotMessage("[ERROR] ${detectedService.name}: $errorMsg\n\n📋 Diagnostic:\n$diagnosis")
                                 return@launch
                             }
-                            // Retry once silently — no "let me try again" message
+                            // Retry once silently
                             kotlinx.coroutines.delay(1500)
                             composioClient.executeAutomation(
                                 instruction = sanitizedMessage,
@@ -110,8 +112,10 @@ class ChatCommandCoordinator(
                                 }
                                 .onFailure { error2 ->
                                     val finalError = error2.message ?: "Unknown error"
+                                    // Run full diagnostic on final failure
+                                    val diagnosis = runDiagnostic(detectedService.id, finalError)
                                     addToHistory("assistant", "[ERROR] $finalError")
-                                    onBotMessage("[ERROR] ${detectedService.name}: $finalError")
+                                    onBotMessage("[ERROR] ${detectedService.name}: $finalError\n\n📋 Diagnostic:\n$diagnosis")
                                 }
                         }
                 } else {
@@ -156,5 +160,92 @@ class ChatCommandCoordinator(
                 sessionHistory.removeLastOrNull()
                 onBotMessage(error.message ?: "Something went wrong. Please try again.")
             }
+    }
+
+    /**
+     * Complete automation diagnostic — runs when automation fails.
+     *
+     * Implements the debug_automation workflow:
+     * 1. Check connection status for the involved app
+     * 2. Check if the app is toggled ON in the connector panel
+     * 3. Check if WhatsApp/Instagram IDs are set (if applicable)
+     * 4. Check if the Groq AI brain is reachable
+     * 5. Generate actionable fix recommendations
+     *
+     * Returns a human-readable diagnostic string.
+     */
+    private suspend fun runDiagnostic(serviceId: String, errorMsg: String): String {
+        val sb = StringBuilder()
+        val serviceName = ComposioClient.ALL_SERVICES.find { it.id == serviceId }?.name ?: serviceId
+
+        sb.append("─── Diagnostic Report ───\n")
+
+        // Step 1: Connection status
+        val isConnected = runCatching {
+            composioClient.isServiceConnected(serviceId)
+        }.getOrDefault(false)
+        sb.append("1. Connection: ${if (isConnected) "✅ Connected" else "❌ NOT connected"}\n")
+        if (!isConnected) {
+            sb.append("   → Fix: Tap the plug icon → find $serviceName → tap Connect\n")
+        }
+
+        // Step 2: Toggle status (only for floating chatbot)
+        val isActive = runCatching {
+            composioClient.isConnectorActive(serviceId)
+        }.getOrDefault(false)
+        sb.append("2. Toggle: ${if (isActive) "✅ ON" else "❌ OFF (or not connected)"}\n")
+        if (isConnected && !isActive) {
+            sb.append("   → Fix: Open connectors panel → flip the toggle ON for $serviceName\n")
+        }
+
+        // Step 3: WhatsApp/Instagram special IDs
+        when (serviceId) {
+            "whatsapp" -> {
+                val waId = composioClient.getWhatsappPhoneNumberId()
+                sb.append("3. WhatsApp Phone ID: ${if (waId.isNotBlank()) "✅ Set" else "❌ NOT set"}\n")
+                if (waId.isBlank()) {
+                    sb.append("   → Fix: Set your WhatsApp Business phone_number_id in connector settings\n")
+                }
+            }
+            "instagram" -> {
+                val igId = composioClient.getInstagramPsid()
+                sb.append("3. Instagram PSID: ${if (igId.isNotBlank()) "✅ Set" else "❌ NOT set"}\n")
+                if (igId.isBlank()) {
+                    sb.append("   → Fix: Set your Instagram Page-Scoped ID in connector settings\n")
+                }
+            }
+            else -> {
+                sb.append("3. Special IDs: N/A for $serviceName\n")
+            }
+        }
+
+        // Step 4: Groq AI brain status
+        val groqOk = backendClient.isConfigured()
+        sb.append("4. AI Brain (Groq): ${if (groqOk) "✅ Key set" else "❌ No key"}\n")
+        if (!groqOk) {
+            sb.append("   → Fix: Groq API key is missing. The app needs it for intent parsing.\n")
+        }
+
+        // Step 5: Error analysis
+        sb.append("5. Error: $errorMsg\n")
+        when {
+            errorMsg.contains("403", ignoreCase = true) || errorMsg.contains("Forbidden", ignoreCase = true) ->
+                sb.append("   → Cause: API access denied. Check account permissions/rate limits.\n")
+            errorMsg.contains("401", ignoreCase = true) ->
+                sb.append("   → Cause: Session expired. Reconnect $serviceName.\n")
+            errorMsg.contains("429", ignoreCase = true) ->
+                sb.append("   → Cause: Rate limited. Wait a moment and try again.\n")
+            errorMsg.contains("not found", ignoreCase = true) ->
+                sb.append("   → Cause: The action doesn't exist for this service.\n")
+            errorMsg.contains("timeout", ignoreCase = true) ->
+                sb.append("   → Cause: Network timeout. Check your internet connection.\n")
+            errorMsg.contains("organization_restricted", ignoreCase = true) ->
+                sb.append("   → Cause: Groq account is restricted. Generate a new key at console.groq.com.\n")
+            else ->
+                sb.append("   → See error details above for specifics.\n")
+        }
+
+        sb.append("─── End Diagnostic ───")
+        return sb.toString()
     }
 }
