@@ -1289,10 +1289,40 @@ class ComposioClient(
         runCatching {
             if (!isConfigured()) error("Connectors not configured")
 
-            // ── Fix P2: getConnectedServices() now uses an in-memory cache ──
-            // (30s TTL), so this call is FREE on cache hit. Previously it was
-            // a 200-800ms network round-trip on every command.
             val connected = getConnectedServices()
+
+            // ── PRE-VALIDATION: check everything before starting ──────────
+            // 1. Detect which services are involved
+            val detectedService = detectService(instruction)
+            val isMultiStepRequest = looksLikeMultiStep(instruction)
+
+            // 2. Validate connections for detected services
+            if (detectedService != null) {
+                val isConn = connected.containsKey(detectedService.id)
+                if (!isConn) {
+                    error("${detectedService.name} is not connected. Tap the plug icon and connect ${detectedService.name} first.")
+                }
+            }
+
+            // 3. Check rate limits — skip if service was recently rate-limited
+            if (detectedService != null && isRateLimited(detectedService.id)) {
+                error("${detectedService.name} was rate-limited recently. Please wait a few minutes and try again.")
+            }
+
+            // 4. Check WhatsApp/Instagram IDs if applicable
+            if (detectedService?.id == "whatsapp") {
+                val waId = getWhatsappPhoneNumberId()
+                if (waId.isBlank()) {
+                    error("WhatsApp phone_number_id is not set. Set it in connector settings before sending messages.")
+                }
+            }
+            if (detectedService?.id == "instagram") {
+                // Instagram DMs need PSID; other Instagram actions (GET_USER_INFO etc.) don't
+                val lower = instruction.lowercase()
+                if ((lower.contains("send") || lower.contains("message") || lower.contains("dm")) && getInstagramPsid().isBlank()) {
+                    error("Instagram PSID is not set. Set it in connector settings before sending DMs.")
+                }
+            }
 
             // ── Fix P1: check caches BEFORE any LLM call ─────────────────────
             // The old code checked the cache AFTER parseMultiStepIntent(),
