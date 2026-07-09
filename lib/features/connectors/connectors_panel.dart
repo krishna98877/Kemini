@@ -232,9 +232,7 @@ class _ConnectorsPanelSheetState extends State<_ConnectorsPanelSheet>
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: connected > 0
-                  ? AppColors.success.withOpacity(0.12)
-                  : const Color(0xFF1A1A1A),
+              color: const Color(0xFF1A1A1A),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Row(
@@ -242,16 +240,16 @@ class _ConnectorsPanelSheetState extends State<_ConnectorsPanelSheet>
                 Container(
                   width: 6,
                   height: 6,
-                  decoration: BoxDecoration(
-                    color: connected > 0 ? AppColors.success : const Color(0xFF444444),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF666666),
                     shape: BoxShape.circle,
                   ),
                 ),
                 const SizedBox(width: 6),
                 Text(
                   '$connected connected',
-                  style: TextStyle(
-                    color: connected > 0 ? AppColors.success : const Color(0xFF555555),
+                  style: const TextStyle(
+                    color: Color(0xFF888888),
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                   ),
@@ -345,33 +343,27 @@ class _ServiceTileState extends State<_ServiceTile>
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            color: widget.isConnected
-                ? color.withOpacity(0.06)
-                : const Color(0xFF181818),
+            color: const Color(0xFF181818),
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: widget.isConnected
-                  ? color.withOpacity(0.25)
-                  : const Color(0xFF222222),
-            ),
+            border: Border.all(color: const Color(0xFF222222)),
           ),
           child: Row(
             children: [
-              // Icon
+              // Logo — brand-colored circle with white initial
               Container(
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.12),
+                  color: color,
                   borderRadius: BorderRadius.circular(11),
                 ),
                 alignment: Alignment.center,
                 child: Text(
                   widget.service.iconChar,
-                  style: TextStyle(
-                    color: color,
+                  style: const TextStyle(
+                    color: Colors.white,
                     fontSize: 18,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
@@ -395,10 +387,8 @@ class _ServiceTileState extends State<_ServiceTile>
                       child: Text(
                         widget.isConnected ? 'Connected' : 'Not connected',
                         key: ValueKey(widget.isConnected),
-                        style: TextStyle(
-                          color: widget.isConnected
-                              ? AppColors.success
-                              : const Color(0xFF555555),
+                        style: const TextStyle(
+                          color: Color(0xFF666666),
                           fontSize: 12,
                         ),
                       ),
@@ -406,20 +396,19 @@ class _ServiceTileState extends State<_ServiceTile>
                   ],
                 ),
               ),
-              // Action button
+              // Action button — white bg, black text, simple
               if (widget.isLoading)
-                SizedBox(
+                const SizedBox(
                   width: 22,
                   height: 22,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: color,
+                    color: Colors.white,
                   ),
                 )
               else
                 _ActionButton(
                   isConnected: widget.isConnected,
-                  color: color,
                   onTap: widget.onTap,
                 ),
             ],
@@ -432,12 +421,10 @@ class _ServiceTileState extends State<_ServiceTile>
 
 class _ActionButton extends StatelessWidget {
   final bool isConnected;
-  final Color color;
   final VoidCallback onTap;
 
   const _ActionButton({
     required this.isConnected,
-    required this.color,
     required this.onTap,
   });
 
@@ -447,16 +434,13 @@ class _ActionButton extends StatelessWidget {
       duration: const Duration(milliseconds: 220),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
       decoration: BoxDecoration(
-        color: isConnected ? const Color(0xFF1E1E1E) : color.withOpacity(0.15),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isConnected ? const Color(0xFF2A2A2A) : color.withOpacity(0.4),
-        ),
       ),
       child: Text(
         isConnected ? 'Disconnect' : 'Connect',
-        style: TextStyle(
-          color: isConnected ? const Color(0xFF666666) : color,
+        style: const TextStyle(
+          color: Colors.black,
           fontSize: 12,
           fontWeight: FontWeight.w600,
         ),

@@ -86,22 +86,21 @@ class ChatCommandCoordinator(
                             onBotMessage(reply)
                         }
                         .onFailure { error ->
-                            // ── Retry logic: don't show failure immediately ──
+                            // ── Show the REAL technical error so we can debug ──
                             val errorMsg = error.message ?: "Unknown error"
-                            // Don't retry on permanent errors (auth, permission, not-connected)
+                            // Don't retry on permanent errors
                             val isPermanentError = errorMsg.contains("not connected", ignoreCase = true) ||
                                 errorMsg.contains("expired", ignoreCase = true) ||
                                 errorMsg.contains("Permission denied", ignoreCase = true) ||
                                 errorMsg.contains("not configured", ignoreCase = true)
                             if (isPermanentError) {
-                                // Don't retry — just tell the user what went wrong
                                 addToHistory("assistant", "Automation failed: $errorMsg")
-                                onBotMessage("I couldn't do that — $errorMsg. Try connecting ${detectedService.name} in Settings → Manage Connectors first.")
+                                onBotMessage("[ERROR] ${detectedService.name} automation failed:\n$errorMsg")
                                 return@launch
                             }
                             // Retryable error — tell the user we're trying again
                             onBotMessage("Let me try that again...")
-                            kotlinx.coroutines.delay(1500)  // brief pause before retry
+                            kotlinx.coroutines.delay(1500)
                             composioClient.executeAutomation(
                                 instruction = sanitizedMessage,
                                 groqClient = backendClient.groq
@@ -111,24 +110,10 @@ class ChatCommandCoordinator(
                                     onBotMessage(reply)
                                 }
                                 .onFailure { error2 ->
-                                    // Second attempt also failed — show a helpful, specific message
+                                    // Show the REAL technical error — no sanitization
                                     val finalError = error2.message ?: "Unknown error"
                                     addToHistory("assistant", "Automation failed after retry: $finalError")
-                                    // Give the user an actionable message
-                                    val userMsg = when {
-                                        finalError.contains("403", ignoreCase = true) || finalError.contains("Forbidden", ignoreCase = true) ->
-                                            "The AI brain seems to be blocked. Try again later or check your network."
-                                        finalError.contains("401", ignoreCase = true) || finalError.contains("Unauthorized", ignoreCase = true) ->
-                                            "${detectedService.name} needs to be reconnected. Go to Settings → Manage Connectors."
-                                        finalError.contains("429", ignoreCase = true) || finalError.contains("rate", ignoreCase = true) ->
-                                            "Too many requests right now. Please wait a moment and try again."
-                                        finalError.contains("timeout", ignoreCase = true) || finalError.contains("timed out", ignoreCase = true) ->
-                                            "The request timed out. Check your network and try again."
-                                        finalError.contains("Couldn't understand", ignoreCase = true) ->
-                                            "I couldn't figure out what you want to do. Try being more specific, like 'send an email to john@example.com saying hello'."
-                                        else -> "I tried twice but couldn't complete that. Error: $finalError"
-                                    }
-                                    onBotMessage(userMsg)
+                                    onBotMessage("[ERROR] ${detectedService.name} automation failed after retry:\n$finalError")
                                 }
                         }
                 } else {

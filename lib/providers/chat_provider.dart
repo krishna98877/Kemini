@@ -217,7 +217,7 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
         removeTypingIndicator();
         reply = result.when(
           success: (r) => r,
-          failure: (f) => 'Sorry, something went wrong. Please try again.',
+          failure: (f) => '[ERROR] ${f.message}',
         );
       }
 
@@ -240,7 +240,7 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
         ...(state.value ?? <Message>[]),
         Message(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
-          text: 'Sorry, something went wrong. Please try again.',
+          text: '[ERROR] $e',
           type: MessageType.bot,
           timestamp: DateTime.now(),
         ),
