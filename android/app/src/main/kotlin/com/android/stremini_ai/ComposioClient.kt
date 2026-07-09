@@ -1049,6 +1049,77 @@ class ComposioClient(
      * For single-service instructions the existing single-action path is used
      * as a fast path.
      */
+    // ── Dynamic tool discovery via Composio's tool_router API ───────────
+    // Instead of hardcoding action IDs (which go stale), we use Composio's
+    // search_tools endpoint to dynamically discover the right tool based on
+    // the user's natural language request. The search returns:
+    // - The exact tool slug(s) to execute
+    // - A step-by-step execution plan
+    // - Connection status for involved toolkits
+    // - Tool schemas (input parameters)
+
+    /**
+     * Search for tools using Composio's tool_router API.
+     * Returns a list of (toolSlug, toolkitSlug, description) tuples.
+     */
+    private suspend fun searchTools(
+        instruction: String,
+        connectedUserId: String
+    ): List<Triple<String, String, String>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val apiKey = getDeveloperApiKey()
+            if (apiKey.isBlank()) return@withContext emptyList()
+
+            // Step 1: Create a tool_router session
+            val sessionBody = JSONObject().apply {
+                put("user_id", connectedUserId)
+            }.toString().toRequestBody("application/json".toMediaType())
+
+            val sessionReq = Request.Builder()
+                .url("$COMPOSIO_TOOLS_API_BASE/tool_router/session")
+                .addHeader("x-api-key", apiKey)
+                .addHeader("Content-Type", "application/json")
+                .post(sessionBody)
+                .build()
+
+            val client = secureHttpClient(10L, 15L, "composio")
+            val sessionId = client.newCall(sessionReq).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext emptyList()
+                val json = JSONObject(resp.body?.string() ?: "{}")
+                json.optString("session_id").ifBlank { return@withContext emptyList() }
+            }
+
+            // Step 2: Search for tools matching the user's use case
+            val searchBody = JSONObject().apply {
+                put("queries", JSONArray().apply {
+                    put(JSONObject().apply { put("use_case", instruction) })
+                })
+            }.toString().toRequestBody("application/json".toMediaType())
+
+            val searchReq = Request.Builder()
+                .url("$COMPOSIO_TOOLS_API_BASE/tool_router/session/$sessionId/search")
+                .addHeader("x-api-key", apiKey)
+                .addHeader("Content-Type", "application/json")
+                .post(searchBody)
+                .build()
+
+            client.newCall(searchReq).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext emptyList()
+                val json = JSONObject(resp.body?.string() ?: "{}")
+                val schemas = json.optJSONArray("tool_schemas") ?: return@withContext emptyList()
+                val results = mutableListOf<Triple<String, String, String>>()
+                for (i in 0 until schemas.length()) {
+                    val slug = schemas.optString(i)
+                    if (slug.isNotBlank()) {
+                        results.add(Triple(slug, "", ""))
+                    }
+                }
+                Log.i(TAG, "Tool search for '${safeInstruction(instruction)}' found: ${results.map { it.first }}")
+                results
+            }
+        }.getOrDefault(emptyList())
+    }
+
     suspend fun executeAutomation(
         instruction: String,
         groqClient: GroqClient? = null
@@ -1157,6 +1228,32 @@ class ComposioClient(
             }
             val accountId = accountIds.first()
 
+            // ── Dynamic tool discovery: try Composio's search_tools first ──
+            // This uses Composio's own AI to find the right tool based on the
+            // user's natural language request. Much more accurate than LLM guessing.
+            val connectedUserId = prefs.getString("composio_connected_user_id") ?: getStableUserId()
+            val searchResults = searchTools(instruction, connectedUserId)
+            if (searchResults.isNotEmpty()) {
+                // Found tools via Composio's search — use the first one
+                val (toolSlug, _, _) = searchResults.first()
+                Log.i(TAG, "Using Composio-searched tool: $toolSlug")
+
+                // Use LLM to parse params if available, otherwise use keywords
+                val params = if (groqClient != null) {
+                    parseIntentWithLLM(instruction, service, groqClient)?.second
+                        ?: parseIntentByKeywords(instruction, service)?.second
+                        ?: emptyMap()
+                } else {
+                    parseIntentByKeywords(instruction, service)?.second ?: emptyMap()
+                }
+
+                val resolvedParams = resolveContactParams(toolSlug, params)
+                val result = executeAction(toolSlug, resolvedParams, accountId, serviceId = service.id).getOrThrow()
+                cacheAutomationResult(instruction, toolSlug, resolvedParams)
+                return@runCatching result
+            }
+
+            // ── Fallback: LLM + keyword parsing (if search_tools fails) ──
             val actionParams = if (groqClient != null) {
                 // Try LLM first (smarter parsing), fall back to keywords if LLM is unreachable.
                 // This is critical: if Groq is down (403, network error, rate limit),
