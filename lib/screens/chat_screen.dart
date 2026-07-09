@@ -12,6 +12,7 @@ import 'package:syncfusion_flutter_pdf/pdf.dart';
 import '../core/widgets/app_drawer.dart';
 import '../providers/chat_provider.dart';
 import '../models/message_model.dart';
+import '../features/connectors/connectors_panel.dart';
 import 'contact_us_screen.dart';
 import 'home/home_screen.dart';
 import 'settings_screen.dart';
@@ -644,6 +645,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                   border: Border.all(color: const Color(0x1AFFFFFF), width: 0.5),
                 ),
                 child: const Icon(Icons.add_rounded, color: _textMuted, size: 20),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Plug icon — opens connectors panel
+            GestureDetector(
+              onTap: () async {
+                final composioAsync = ref.read(composioServiceProvider);
+                final manager = composioAsync.maybeWhen(
+                  data: (m) => m, orElse: () => null);
+                if (manager != null && mounted) {
+                  await ConnectorsPanel.show(context, manager);
+                }
+              },
+              child: Container(
+                width: 40, height: 40,
+                margin: const EdgeInsets.only(bottom: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0x0DFFFFFF),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0x1AFFFFFF), width: 0.5),
+                ),
+                child: const Icon(Icons.electrical_services_rounded,
+                    color: _textMuted, size: 20),
               ),
             ),
             const SizedBox(width: 8),
