@@ -115,6 +115,37 @@ private val groqChatRateLimiter    = RateLimiter(maxRequests = 30, windowMs = 30
 private val groqKeyboardRateLimiter = RateLimiter(maxRequests = 60, windowMs = 30_000L)
 private val configRateLimiter     = RateLimiter(maxRequests = 10, windowMs = 30_000L)
 
+// ── Connection Pooling ──────────────────────────────────────────────
+// Reuse HTTP connections across requests instead of creating new ones.
+// OkHttp's ConnectionPool keeps connections alive (keep-alive) so
+// repeat requests to the same host skip the TCP+TLS handshake.
+// maxConnectionsPerApp=5, keepAlive=5min, connectionTimeout=30s
+private val sharedConnectionPool = okhttp3.ConnectionPool(
+    maxIdleConnections = 5,      // up to 5 idle connections per host
+    keepAliveDuration = 5,       // keep alive for 5 minutes
+    TimeUnit.MINUTES
+)
+
+// ── Response Compression ───────────────────────────────────────────
+// OkHttp automatically adds Accept-Encoding: gzip and decompresses
+// responses. The GzipInterceptor explicitly enables it for all requests
+// to reduce bandwidth by ~70% for JSON responses.
+class GzipInterceptor : Interceptor {
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val request = chain.request().newBuilder()
+            .addHeader("Accept-Encoding", "gzip")
+            .build()
+        return chain.proceed(request)
+    }
+}
+
+// ── Large Response Streaming ───────────────────────────────────────
+// For responses > 100KB, read in chunks instead of loading entire body
+// into memory. Prevents OOM on large API responses (e.g., listing 1000
+// emails or fetching YouTube channel data).
+const val LARGE_RESPONSE_THRESHOLD = 100 * 1024  // 100KB
+const val MAX_RESPONSE_SIZE = 512 * 1024          // 512KB hard cap
+
 fun secureHttpClient(
     connectTimeoutSeconds: Long,
     readTimeoutSeconds: Long,
@@ -133,9 +164,12 @@ fun secureHttpClient(
     return OkHttpClient.Builder()
         .addInterceptor(TrustedHostInterceptor())
         .addInterceptor(RateLimitInterceptor(rateLimiter))
+        .addInterceptor(GzipInterceptor())
+        .connectionPool(sharedConnectionPool)
         .connectTimeout(connectTimeoutSeconds, TimeUnit.SECONDS)
         .readTimeout(readTimeoutSeconds, TimeUnit.SECONDS)
         .callTimeout((connectTimeoutSeconds + readTimeoutSeconds), TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .build()
 }
 

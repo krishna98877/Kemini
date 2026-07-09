@@ -113,7 +113,11 @@ class AutomationQueue(
                 while (lowQueue.isNotEmpty() && batch.size < MAX_CONCURRENT_LOW) { lowQueue.poll()?.let { batch.add(it) } }
                 if (batch.isNotEmpty()) { Log.i(TAG, "Processing ${batch.size} LOW"); processBatch(batch) }
             }
-        } finally { processingLock.withLock { isProcessing = false } }
+        } finally {
+            processingLock.withLock { isProcessing = false }
+            // Memory cleanup after batch — hint GC to reclaim processed action data
+            System.gc()
+        }
         if (highQueue.isNotEmpty() || mediumQueue.isNotEmpty() || lowQueue.isNotEmpty()) { scope.launch { processNext() } }
     }
 

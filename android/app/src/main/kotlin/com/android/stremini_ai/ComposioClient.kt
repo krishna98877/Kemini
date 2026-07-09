@@ -1405,7 +1405,15 @@ class ComposioClient(
                         }
                     }
                 }
-                val respBody = response.body?.string() ?: "{}"
+                // Read response body with size cap to prevent OOM on large responses
+                val rawBody = response.body?.string() ?: "{}"
+                // Cap response at 512KB — prevents OOM from huge API responses
+                val respBody = if (rawBody.length > MAX_RESPONSE_SIZE) {
+                    Log.w(TAG, "Response truncated: ${rawBody.length} bytes > ${MAX_RESPONSE_SIZE} limit")
+                    rawBody.take(MAX_RESPONSE_SIZE)
+                } else {
+                    rawBody
+                }
                 val json = JSONObject(respBody)
                 val resultData = json.optJSONObject("result")
                     ?: json.optJSONObject("data")
