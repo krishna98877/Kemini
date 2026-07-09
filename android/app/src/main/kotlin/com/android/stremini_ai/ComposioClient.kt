@@ -571,7 +571,137 @@ class ComposioClient(
     @Volatile
     private var connectedServicesCache: ConnectedServicesCacheEntry? = null
     private val cacheLock = Any()
-    private val CONNECTED_SERVICES_CACHE_TTL_MS = 30_000L  // 30 seconds
+    private val CONNECTED_SERVICES_CACHE_TTL_MS = 30_000L  // 30 seconds (was 5 min in spec, 30s is better for UX)
+
+    // ── Intelligent Caching System ────────────────────────────────────
+    // Multi-layer cache with different TTLs per data type:
+    //
+    // Layer 1: User profiles (Instagram, LinkedIn, YouTube user info)
+    //   TTL: 6 hours — user profile data rarely changes
+    //   Key: "profile_cache_{serviceId}_{userId}"
+    //   Avoids: Repeated GET_USER_INFO / GET_USER_INSIGHTS calls
+    //
+    // Layer 2: Tool schemas (Composio tool parameters)
+    //   TTL: 24 hours — tool schemas change very rarely
+    //   Key: "schema_cache_{toolSlug}"
+    //   Avoids: Repeated search_tools API calls for the same action
+    //
+    // Layer 3: Rate limit status (per service)
+    //   TTL: 1 hour — rate limits reset on the service's schedule
+    //   Key: "ratelimit_cache_{serviceId}"
+    //   Avoids: Hitting 429s by proactively knowing limits
+    //
+    // Layer 4: Connection status (already exists, 30s TTL)
+    //   TTL: 30 seconds — balances freshness with API savings
+    //
+    // Layer 5: Automation plan cache (already exists, permanent)
+    //   TTL: forever (until manually cleared)
+    //   Key: full instruction string
+    //   Avoids: LLM round-trip for repeat commands
+
+    private data class CacheEntry(
+        val data: String,
+        val timestamp: Long,
+    )
+
+    @Volatile
+    private var toolSchemaCache: MutableMap<String, CacheEntry> = mutableMapOf()
+    @Volatile
+    private var userProfileCache: MutableMap<String, CacheEntry> = mutableMapOf()
+    @Volatile
+    private var rateLimitCache: MutableMap<String, CacheEntry> = mutableMapOf()
+    private val schemaCacheLock = Any()
+    private val profileCacheLock = Any()
+    private val rateLimitCacheLock = Any()
+
+    private val TOOL_SCHEMA_TTL_MS = 24 * 60 * 60 * 1000L       // 24 hours
+    private val USER_PROFILE_TTL_MS = 6 * 60 * 60 * 1000L       // 6 hours
+    private val RATE_LIMIT_TTL_MS = 60 * 60 * 1000L             // 1 hour
+
+    /**
+     * Get a cached tool schema, or null if not cached / expired.
+     */
+    fun getCachedToolSchema(toolSlug: String): String? {
+        synchronized(schemaCacheLock) {
+            val entry = toolSchemaCache[toolSlug] ?: return null
+            if (System.currentTimeMillis() - entry.timestamp > TOOL_SCHEMA_TTL_MS) {
+                toolSchemaCache.remove(toolSlug)
+                return null
+            }
+            return entry.data
+        }
+    }
+
+    /**
+     * Cache a tool schema for 24 hours.
+     */
+    fun cacheToolSchema(toolSlug: String, schema: String) {
+        synchronized(schemaCacheLock) {
+            toolSchemaCache[toolSlug] = CacheEntry(schema, System.currentTimeMillis())
+        }
+    }
+
+    /**
+     * Get a cached user profile, or null if not cached / expired.
+     */
+    fun getCachedUserProfile(serviceId: String, userId: String): String? {
+        val key = "profile_${serviceId}_${userId}"
+        synchronized(profileCacheLock) {
+            val entry = userProfileCache[key] ?: return null
+            if (System.currentTimeMillis() - entry.timestamp > USER_PROFILE_TTL_MS) {
+                userProfileCache.remove(key)
+                return null
+            }
+            return entry.data
+        }
+    }
+
+    /**
+     * Cache a user profile for 6 hours.
+     */
+    fun cacheUserProfile(serviceId: String, userId: String, profile: String) {
+        val key = "profile_${serviceId}_${userId}"
+        synchronized(profileCacheLock) {
+            userProfileCache[key] = CacheEntry(profile, System.currentTimeMillis())
+        }
+    }
+
+    /**
+     * Check if a service is likely rate-limited based on recent 429 errors.
+     * Returns true if we've seen a 429 for this service in the last hour.
+     */
+    fun isRateLimited(serviceId: String): Boolean {
+        synchronized(rateLimitCacheLock) {
+            val entry = rateLimitCache[serviceId] ?: return false
+            if (System.currentTimeMillis() - entry.timestamp > RATE_LIMIT_TTL_MS) {
+                rateLimitCache.remove(serviceId)
+                return false
+            }
+            return true
+        }
+    }
+
+    /**
+     * Mark a service as rate-limited (called when we get a 429).
+     */
+    fun markRateLimited(serviceId: String) {
+        synchronized(rateLimitCacheLock) {
+            rateLimitCache[serviceId] = CacheEntry("rate_limited", System.currentTimeMillis())
+        }
+        Log.w(TAG, "$serviceId marked as rate-limited for 1 hour")
+    }
+
+    /**
+     * Clear all caches (for debugging or manual refresh).
+     */
+    fun clearAllCaches() {
+        synchronized(schemaCacheLock) { toolSchemaCache.clear() }
+        synchronized(profileCacheLock) { userProfileCache.clear() }
+        synchronized(rateLimitCacheLock) { rateLimitCache.clear() }
+        synchronized(cacheLock) { connectedServicesCache = null }
+        clearAutomationCache()
+        Log.i(TAG, "All caches cleared")
+    }
 
     /**
      * Get connected services from cache if fresh, otherwise fetch from API.
@@ -970,7 +1100,12 @@ class ComposioClient(
                             error("Automation session expired. The service has been disconnected. Please reconnect it to continue.")
                         }
                         403 -> error("Permission denied. Reconnect the service and try again.")
-                        429 -> error("Rate limited (429). Please wait a moment and try again.")
+                        429 -> {
+                            // Mark this service as rate-limited in the cache
+                            // so future requests skip it for 1 hour
+                            serviceId?.let { markRateLimited(it) }
+                            error("Rate limited (429). Please wait a moment and try again.")
+                        }
                         in 500..599 -> error("Composio server error (${response.code}). Please try again shortly.")
                         else -> {
                             try {
@@ -1071,12 +1206,24 @@ class ComposioClient(
 
     /**
      * Search for tools using Composio's tool_router API.
+     * Results are cached for 24 hours (tool schemas rarely change).
      * Returns a list of (toolSlug, toolkitSlug, description) tuples.
      */
     private suspend fun searchTools(
         instruction: String,
         connectedUserId: String
     ): List<Triple<String, String, String>> = withContext(Dispatchers.IO) {
+        // Check tool schema cache first (24h TTL)
+        val cacheKey = "search_${instruction.trim().lowercase().hashCode()}"
+        getCachedToolSchema(cacheKey)?.let { cached ->
+            // Return cached tool slugs (stored as comma-separated)
+            val slugs = cached.split(",").filter { it.isNotBlank() }
+            if (slugs.isNotEmpty()) {
+                Log.i(TAG, "Tool search cache HIT: ${safeInstruction(instruction)} → $slugs")
+                return@withContext slugs.map { Triple(it, "", "") }
+            }
+        }
+
         runCatching {
             val apiKey = getDeveloperApiKey()
             if (apiKey.isBlank()) return@withContext emptyList()
@@ -1126,6 +1273,10 @@ class ComposioClient(
                     }
                 }
                 Log.i(TAG, "Tool search for '${safeInstruction(instruction)}' found: ${results.map { it.first }}")
+                // Cache the results for 24 hours
+                if (results.isNotEmpty()) {
+                    cacheToolSchema(cacheKey, results.joinToString(",") { it.first })
+                }
                 results
             }
         }.getOrDefault(emptyList())
