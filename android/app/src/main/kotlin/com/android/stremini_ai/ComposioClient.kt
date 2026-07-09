@@ -1023,13 +1023,21 @@ class ComposioClient(
     // ── Execute Automation ─────────────────────────────────────────
 
     /**
-     * Execute a Composio action by action ID with structured parameters.
-     * On transient failures (429 / 5xx) retries once after a short backoff.
+     * Execute a Composio action with smart retry logic + exponential backoff.
      *
-     * @param actionId Composio action ID (e.g., "GMAIL_SEND_EMAIL")
-     * @param params Map of input parameters for the action
-     * @param connectedAccountId The connected account to use
-     * @param serviceId Optional service ID for disconnect-on-401 logic
+     * Retry strategy per error type:
+     * - 429 (rate limit): exponential backoff (2^n seconds), max 3 retries
+     * - 500/502/503 (server): 30s wait, max 3 retries
+     * - Network timeout: exponential backoff (2^n seconds), max 5 retries
+     * - 401 (auth): auto-disconnect + notify (no retry)
+     * - 403 (permission): no retry (permanent)
+     * - Other: 1 retry with 2s delay
+     *
+     * Per-service rate limit wait times:
+     * - Instagram: 1 hour (very strict)
+     * - Google Sheets: 60 seconds (generous)
+     * - YouTube: exponential backoff (10 retries)
+     * - Others: default exponential (2^n seconds, max 3)
      */
     suspend fun executeAction(
         actionId: String,
@@ -1037,23 +1045,124 @@ class ComposioClient(
         connectedAccountId: String,
         serviceId: String? = null
     ): Result<String> = withContext(Dispatchers.IO) {
-        runCatching {
-            executeActionInternal(actionId, params, connectedAccountId, serviceId)
-        }.recoverCatching { firstError ->
-            val msg = firstError.message ?: ""
-            val isTransient = msg.contains("429") ||
-                msg.contains("temporarily unavailable") ||
-                msg.contains("500") ||
-                msg.contains("502") ||
-                msg.contains("503")
-            if (isTransient) {
-                Log.w(TAG, "Transient failure on action $actionId, retrying in 1.5s…")
-                kotlinx.coroutines.delay(1500)
-                executeActionInternal(actionId, params, connectedAccountId, serviceId)
-            } else {
-                throw firstError
+        var lastError: Throwable? = null
+        var attempt = 0
+        val maxRetries = getMaxRetries(serviceId)
+
+        while (attempt <= maxRetries) {
+            try {
+                return@withContext Result.success(
+                    executeActionInternal(actionId, params, connectedAccountId, serviceId)
+                )
+            } catch (e: Throwable) {
+                lastError = e
+                val msg = e.message ?: ""
+                attempt++
+
+                // Determine error type and whether to retry
+                val errorType = classifyError(msg)
+                val shouldRetry = when (errorType) {
+                    ErrorType.RATE_LIMIT -> attempt <= getRateLimitRetries(serviceId)
+                    ErrorType.SERVER_ERROR -> attempt <= 3
+                    ErrorType.NETWORK_ERROR -> attempt <= 5
+                    ErrorType.AUTH_FAILURE -> false  // don't retry auth
+                    ErrorType.PERMISSION -> false    // don't retry permission
+                    ErrorType.UNKNOWN -> attempt <= 1  // 1 retry for unknown
+                }
+
+                if (!shouldRetry) break
+
+                // Calculate wait time based on error type + service
+                val waitMs = calculateBackoff(errorType, attempt, serviceId)
+                Log.w(TAG, "Retry $attempt/$maxRetries for $actionId (${errorType.name}) — waiting ${waitMs}ms")
+
+                // Mark rate-limited services in cache
+                if (errorType == ErrorType.RATE_LIMIT && serviceId != null) {
+                    markRateLimited(serviceId)
+                }
+
+                kotlinx.coroutines.delay(waitMs)
             }
         }
+
+        Result.failure(lastError ?: RuntimeException("Unknown execution failure"))
+    }
+
+    /** Error classification for smart retry decisions */
+    private enum class ErrorType {
+        RATE_LIMIT,      // 429
+        SERVER_ERROR,    // 500, 502, 503
+        NETWORK_ERROR,   // timeout, connection refused
+        AUTH_FAILURE,    // 401
+        PERMISSION,      // 403
+        UNKNOWN          // anything else
+    }
+
+    private fun classifyError(msg: String): ErrorType {
+        return when {
+            msg.contains("429") || msg.contains("rate limit", ignoreCase = true) -> ErrorType.RATE_LIMIT
+            msg.contains("500") || msg.contains("502") || msg.contains("503") ||
+                msg.contains("server error", ignoreCase = true) -> ErrorType.SERVER_ERROR
+            msg.contains("timeout", ignoreCase = true) || msg.contains("timed out", ignoreCase = true) ||
+                msg.contains("connection", ignoreCase = true) -> ErrorType.NETWORK_ERROR
+            msg.contains("401") || msg.contains("unauthorized", ignoreCase = true) ||
+                msg.contains("expired", ignoreCase = true) -> ErrorType.AUTH_FAILURE
+            msg.contains("403") || msg.contains("forbidden", ignoreCase = true) ||
+                msg.contains("permission", ignoreCase = true) -> ErrorType.PERMISSION
+            else -> ErrorType.UNKNOWN
+        }
+    }
+
+    /** Max retries per service (YouTube gets more — large uploads) */
+    private fun getMaxRetries(serviceId: String?): Int {
+        return when (serviceId) {
+            "youtube" -> 10
+            "googlesheets" -> 5
+            else -> 3
+        }
+    }
+
+    /** Rate limit retry count per service */
+    private fun getRateLimitRetries(serviceId: String?): Int {
+        return when (serviceId) {
+            "instagram" -> 3    // Instagram is strict — don't hammer
+            "googlesheets" -> 5 // Sheets is generous
+            "youtube" -> 10     // YouTube needs patience for uploads
+            else -> 3
+        }
+    }
+
+    /**
+     * Calculate backoff wait time based on error type, attempt number, and service.
+     *
+     * - RATE_LIMIT: service-specific wait (Instagram=1h, Sheets=60s, YouTube=exponential)
+     * - SERVER_ERROR: fixed 30s
+     * - NETWORK_ERROR: exponential 2^n seconds (2, 4, 8, 16, 32)
+     * - UNKNOWN: fixed 2s
+     */
+    private fun calculateBackoff(errorType: ErrorType, attempt: Int, serviceId: String?): Long {
+        return when (errorType) {
+            ErrorType.RATE_LIMIT -> {
+                when (serviceId) {
+                    "instagram" -> 60 * 60 * 1000L   // 1 hour (Instagram is strict)
+                    "googlesheets" -> 60 * 1000L     // 60 seconds (generous)
+                    "youtube" -> (2L.pow(attempt)) * 1000  // exponential (2, 4, 8, 16, 32, 64, 128, 256, 512, 1024)
+                    else -> (2L.pow(attempt)) * 1000       // exponential default
+                }
+            }
+            ErrorType.SERVER_ERROR -> 30 * 1000L      // 30 seconds
+            ErrorType.NETWORK_ERROR -> (2L.pow(attempt)) * 1000  // 2, 4, 8, 16, 32 seconds
+            ErrorType.AUTH_FAILURE -> 0L              // no retry
+            ErrorType.PERMISSION -> 0L                // no retry
+            ErrorType.UNKNOWN -> 2000L                // 2 seconds
+        }
+    }
+
+    /** Simple power function for Long (Kotlin doesn't have Math.pow for Long) */
+    private fun Long.pow(exp: Int): Long {
+        var result = 1L
+        repeat(exp) { result *= this }
+        return result
     }
 
     private suspend fun executeActionInternal(
