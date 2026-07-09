@@ -58,7 +58,7 @@ RULES:
                         "gmail" -> "send emails, fetch/read emails, search emails"
                         "github" -> "create issues, create repos, list repos, create pull requests"
                         "whatsapp" -> "send text messages (requires phone number or contact name)"
-                        "instagram" -> "send direct messages (requires recipient PSID)"
+                        "instagram" -> "send direct messages, get user info/insights (followers, impressions), get user media, get media insights, get/post media comments, get stories, list all conversations, list all messages"
                         "facebook" -> "create posts"
                         "discord" -> "send channel messages"
                         "linkedin" -> "create posts"

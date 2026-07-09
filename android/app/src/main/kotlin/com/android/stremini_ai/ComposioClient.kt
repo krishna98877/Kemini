@@ -120,25 +120,47 @@ class ComposioClient(
          * Discord = DISCORDBOT_* (not DISCORD_*).
          */
         val INTENT_ACTION_MAP = mapOf(
-            "send_email"      to "GMAIL_SEND_EMAIL",                    // ✅ verified
-            "read_email"      to "GMAIL_FETCH_EMAILS",                  // was GMAIL_GET_EMAILS (not found)
-            "search_email"    to "GMAIL_LIST_MESSAGES",                 // was GMAIL_SEARCH_EMAILS (not found)
-            "create_issue"    to "GITHUB_CREATE_AN_ISSUE",              // ✅ verified
-            "create_repo"     to "GITHUB_CREATE_A_REPOSITORY_FOR_THE_AUTHENTICATED_USER", // was GITHUB_CREATE_A_REPOSITORY
-            "list_repos"      to "GITHUB_LIST_ACCESSIBLE_REPOSITORIES",  // was GITHUB_LIST_REPOSITORIES_FOR_AUTHENTICATED_USER
-            "create_pr"       to "GITHUB_CREATE_A_PULL_REQUEST",        // ✅ verified
-            "send_whatsapp"   to "WHATSAPP_SEND_MESSAGE",               // ✅ verified
-            "send_instagram"  to "INSTAGRAM_SEND_TEXT_MESSAGE",         // ✅ verified
-            "post_facebook"   to "FACEBOOK_CREATE_POST",                // ✅ verified
-            "send_discord"    to "DISCORDBOT_CREATE_MESSAGE",           // was DISCORD_SEND_A_MESSAGE_TO_A_CHANNEL
-            "linkedin_post"   to "LINKEDIN_CREATE_LINKED_IN_POST",      // was LINKEDIN_CREATE_A_POST
-            "reddit_post"     to "REDDIT_CREATE_REDDIT_POST",            // was REDDIT_CREATE_A_POST
-            "upload_drive"    to "GOOGLEDRIVE_CREATE_FILE_FROM_TEXT",   // was GOOGLE_DRIVE_UPLOAD_FILE
-            "list_drive"      to "GOOGLEDRIVE_FIND_FILE",               // was GOOGLE_DRIVE_LIST_FILES
-            "read_sheet"      to "GOOGLESHEETS_VALUES_GET",             // was GOOGLE_SHEETS_READ_SHEET
-            "update_sheet"    to "GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND", // was GOOGLE_SHEETS_UPDATE_SHEET
-            "upload_youtube"  to "YOUTUBE_UPLOAD_VIDEO",               // was YOUTUBE_UPLOAD_A_VIDEO
-            "youtube_comment" to "YOUTUBE_POST_COMMENT",               // was YOUTUBE_ADD_COMMENT
+            // Gmail
+            "send_email"      to "GMAIL_SEND_EMAIL",
+            "read_email"      to "GMAIL_FETCH_EMAILS",
+            "search_email"    to "GMAIL_LIST_MESSAGES",
+            // GitHub
+            "create_issue"    to "GITHUB_CREATE_AN_ISSUE",
+            "create_repo"     to "GITHUB_CREATE_A_REPOSITORY_FOR_THE_AUTHENTICATED_USER",
+            "list_repos"      to "GITHUB_LIST_ACCESSIBLE_REPOSITORIES",
+            "create_pr"       to "GITHUB_CREATE_A_PULL_REQUEST",
+            // WhatsApp
+            "send_whatsapp"   to "WHATSAPP_SEND_MESSAGE",
+            // Instagram — FULL set from Composio toolkit page
+            "send_instagram"    to "INSTAGRAM_SEND_TEXT_MESSAGE",
+            "ig_user_info"      to "INSTAGRAM_GET_USER_INFO",
+            "ig_user_insights"  to "INSTAGRAM_GET_USER_INSIGHTS",
+            "ig_user_media"     to "INSTAGRAM_GET_IG_USER_MEDIA",
+            "ig_media"          to "INSTAGRAM_GET_IG_MEDIA",
+            "ig_media_insights" to "INSTAGRAM_GET_IG_MEDIA_INSIGHTS",
+            "ig_media_comments" to "INSTAGRAM_GET_IG_MEDIA_COMMENTS",
+            "ig_post_comment"   to "INSTAGRAM_POST_IG_MEDIA_COMMENTS",
+            "ig_stories"        to "INSTAGRAM_GET_IG_USER_STORIES",
+            "ig_list_convos"    to "INSTAGRAM_LIST_ALL_CONVERSATIONS",
+            "ig_list_messages"  to "INSTAGRAM_LIST_ALL_MESSAGES",
+            "ig_get_convo"      to "INSTAGRAM_GET_CONVERSATION",
+            // Facebook
+            "post_facebook"   to "FACEBOOK_CREATE_POST",
+            // Discord
+            "send_discord"    to "DISCORDBOT_CREATE_MESSAGE",
+            // LinkedIn
+            "linkedin_post"   to "LINKEDIN_CREATE_LINKED_IN_POST",
+            // Reddit
+            "reddit_post"     to "REDDIT_CREATE_REDDIT_POST",
+            // Google Drive
+            "upload_drive"    to "GOOGLEDRIVE_CREATE_FILE_FROM_TEXT",
+            "list_drive"      to "GOOGLEDRIVE_FIND_FILE",
+            // Google Sheets
+            "read_sheet"      to "GOOGLESHEETS_VALUES_GET",
+            "update_sheet"    to "GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND",
+            // YouTube
+            "upload_youtube"  to "YOUTUBE_UPLOAD_VIDEO",
+            "youtube_comment" to "YOUTUBE_POST_COMMENT",
         )
 
         /** Map serviceId → action ID prefix for LLM prompt filtering.
