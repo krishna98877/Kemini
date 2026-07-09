@@ -100,6 +100,10 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
 
 
 
+  // Processing lock — prevents new messages while AI is responding
+  bool _isProcessing = false;
+  bool get isProcessing => _isProcessing;
+
   Message _greeting() => Message(
         id: _initialGreetingId,
         text: "Hello! I'm Stremini AI. How can I help you today?",
@@ -143,6 +147,12 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
     final trimmed = InputSanitizer.sanitizeText(text);
     if (trimmed.isEmpty && attachment == null) return;
 
+    // Block new messages while AI is processing
+    if (_isProcessing) return;
+
+    _isProcessing = true;
+    ref.notifyListeners();
+
     final current = [...(state.value ?? <Message>[])];
     final visibleText = displayText?.trim().isNotEmpty == true
         ? InputSanitizer.sanitizeText(displayText!)
@@ -171,22 +181,45 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
 
       String reply;
       if (composio != null && composio.isConnected && detectedService != null) {
-        // Route to Composio automation
-        removeTypingIndicator();
-        final List<Message> withStatus = [
-          ...(state.value ?? <Message>[]),
-          Message(
-            id: DateTime.now().millisecondsSinceEpoch.toString(),
-            text: 'Working on it via ${detectedService.name}...',
-            type: MessageType.bot,
-            timestamp: DateTime.now(),
-          ),
-        ];
-        state = AsyncValue.data(withStatus);
-        final withWorkingTyping = _addTypingIndicatorTo(withStatus);
-        state = AsyncValue.data(withWorkingTyping);
+        // Check if this is a real ACTION (send, post, create) vs a QUESTION
+        // (is my gmail connected? which account?) — questions go to normal chat
+        final lowerMsg = trimmed.toLowerCase();
+        final hasActionVerb = ['send', 'post', 'create', 'read', 'search',
+            'upload', 'message', 'email', 'comment', 'share', 'update',
+            'list', 'get', 'delete', 'reply'].any((v) => lowerMsg.contains(v));
+        final isQuestion = ['who', 'what', 'which', 'is my', 'are my', 'how ',
+            'why', 'when', 'can you', 'do you', 'tell me'].any((q) => lowerMsg.contains(q));
 
-        reply = await composio.sendAutomationInstruction(trimmed);
+        if (hasActionVerb && !isQuestion) {
+          // Route to Composio automation
+          removeTypingIndicator();
+          final List<Message> withStatus = [
+            ...(state.value ?? <Message>[]),
+            Message(
+              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              text: 'Working on it via ${detectedService.name}...',
+              type: MessageType.bot,
+              timestamp: DateTime.now(),
+            ),
+          ];
+          state = AsyncValue.data(withStatus);
+          final withWorkingTyping = _addTypingIndicatorTo(withStatus);
+          state = AsyncValue.data(withWorkingTyping);
+
+          reply = await composio.sendAutomationInstruction(trimmed);
+        } else {
+          // Question about a service — use normal Groq chat, not automation
+          final history = _getHistory(withUser);
+          final docCtx = ref.read(documentContextProvider);
+          final result = (docCtx != null && attachment == null && trimmed.isNotEmpty)
+              ? await ref.read(sendDocumentChatMessageUseCaseProvider)(
+                  documentText: docCtx.text, question: trimmed, history: history)
+              : await ref.read(sendChatMessageUseCaseProvider)(
+                  message: trimmed, attachment: attachment,
+                  mimeType: mimeType, fileName: fileName, history: history);
+          removeTypingIndicator();
+          reply = result.when(success: (r) => r, failure: (f) => '[ERROR] ${f.message}');
+        }
       } else if (composio != null && detectedService != null && !composio.isConnected) {
         // Service detected but Composio not configured yet
         removeTypingIndicator();
@@ -248,6 +281,10 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
       state = AsyncValue.data(updated);
       unawaited(_persistIfEnabled(updated));
 
+    } finally {
+      // Release the processing lock so user can send new messages
+      _isProcessing = false;
+      ref.notifyListeners();
     }
   }
 

@@ -937,7 +937,7 @@ class ChatOverlayService : Service(), View.OnTouchListener {
             isFocusable = true
         }
 
-        // Icon — brand-colored solid circle with white logo (matches Flutter design)
+        // Icon — brand-colored rounded square with the actual logo drawable
         val icon = ImageView(this).apply {
             setImageResource(svc.iconRes)
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -945,14 +945,13 @@ class ChatOverlayService : Service(), View.OnTouchListener {
             layoutParams = LinearLayout.LayoutParams(size, size).apply {
                 marginEnd = (14 * density).toInt()
             }
-            // Tint the icon white so it shows on the brand-colored background
-            setColorFilter(Color.WHITE)
+            // White rounded-square background so the colored logo shows properly
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.RECTANGLE
                 cornerRadius = (10 * density)
-                setColor(svc.color.toInt())
+                setColor(Color.WHITE)
             }
-            setPadding((8 * density).toInt(), (8 * density).toInt(), (8 * density).toInt(), (8 * density).toInt())
+            setPadding((6 * density).toInt(), (6 * density).toInt(), (6 * density).toInt(), (6 * density).toInt())
         }
         row.addView(icon)
 
