@@ -1459,6 +1459,25 @@ CROSS-APP AUTOMATION PATTERNS — recognize these and create multi-step plans:
 5. SYNC/BACKUP (copy data between apps):
    "save my youtube video titles to google sheets" → YouTube list → Sheets append (dependent).
 
+6. CONTENT CREATION PIPELINE (video → repurpose → distribute → track):
+   "get my latest youtube video then post about it on instagram and reddit and log it in sheets"
+   → Step 1: YouTube GET_CHANNEL_VIDEOS (get latest video details)
+   → Step 2: Instagram POST_IG_MEDIA_COMMENTS (share — depends on step 1)
+   → Step 3: Reddit CREATE_REDDIT_POST (share — depends on step 1)
+   → Step 4: Google Sheets SPREADSHEETS_VALUES_APPEND (log metrics — depends on step 1)
+   Steps 2-4 all depend on step 1 but are independent of each other.
+
+7. SOCIAL MEDIA BLAST (one message to all socials + log):
+   "post 'New video live!' on instagram, facebook, linkedin, reddit and track in sheets"
+   → Steps 1-4: concurrent posts to each platform (no dependencies)
+   → Step 5: Sheets append (depends on all previous — runs last)
+
+8. RESEARCH → CREATE → DISTRIBUTE (gather info → make content → share):
+   "search reddit for trending topics then post about the best one on instagram and linkedin"
+   → Step 1: Reddit SEARCH_ACROSS_SUBREDDITS (research)
+   → Step 2: Instagram post (depends on step 1 — uses research result)
+   → Step 3: LinkedIn post (depends on step 1 — same content, different platform)
+
 Rules:
 - If the request only involves ONE service, return a JSON array with a single element.
 - If the request involves MULTIPLE services, return multiple steps in execution order.

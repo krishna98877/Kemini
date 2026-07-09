@@ -37,6 +37,9 @@ CROSS-APP AUTOMATION — you can chain multiple apps in one request:
 - "check my gmail then add to google sheets" → reads email → appends to sheet
 - "get my youtube and instagram stats" → fetches both concurrently
 - "share this on all my social media" → distributes to all connected social platforms
+- "get my latest youtube video then post about it on instagram and reddit and log in sheets" → content pipeline
+- "search reddit for trending topics then post about the best one on instagram and linkedin" → research → create → distribute
+- "post New video live on all socials and track in sheets" → blast + analytics
 
 CURRENTLY CONNECTED SERVICES AND THEIR CAPABILITIES:
 {CONNECTED_SERVICES}
