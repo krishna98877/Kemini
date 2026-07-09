@@ -121,6 +121,7 @@ class ChatOverlayService : Service(), View.OnTouchListener {
     private lateinit var aiBackendClient: AIBackendClient
     private lateinit var chatCommandCoordinator: ChatCommandCoordinator
     private lateinit var healthCheckMonitor: HealthCheckMonitor
+    private lateinit var automationQueue: AutomationQueue
     private lateinit var bubbleController:        BubbleController
     private lateinit var floatingChatController: FloatingChatController
     private lateinit var idleAnimationController: IdleAnimationController
@@ -192,6 +193,9 @@ class ChatOverlayService : Service(), View.OnTouchListener {
         // Start background health check monitor (runs every 6 hours)
         healthCheckMonitor = HealthCheckMonitor(this, composioClient)
         healthCheckMonitor.start()
+
+        // Initialize priority-based automation queue
+        automationQueue = AutomationQueue(composioClient, serviceScope)
 
         setupOverlay()
 
@@ -1254,15 +1258,21 @@ class ChatOverlayService : Service(), View.OnTouchListener {
 
     // ── Message handling
     private fun processUserCommand(userMessage: String) {
-        // Intercept health check commands
         val lower = userMessage.lowercase().trim()
         if (lower == "health check" || lower == "run diagnostics" || lower == "status" || lower == "system status") {
             addMessageToChatbot(userMessage, isUser = true)
             addMessageToChatbot("Running health check...", isUser = false)
             serviceScope.launch {
                 val report = healthCheckMonitor.forceCheckNow()
-                addMessageToChatbot(report, isUser = false)
+                val queueStatus = automationQueue.getQueueStatus()
+                val circuitReport = composioClient.getCircuitBreakerReport()
+                addMessageToChatbot("$report\n\n📊 $queueStatus\n\n🔌 Circuits:\n$circuitReport", isUser = false)
             }
+            return
+        }
+        if (lower == "queue status" || lower == "queue") {
+            addMessageToChatbot(userMessage, isUser = true)
+            addMessageToChatbot(automationQueue.getQueueStatus(), isUser = false)
             return
         }
         chatCommandCoordinator.processUserMessage(userMessage)
