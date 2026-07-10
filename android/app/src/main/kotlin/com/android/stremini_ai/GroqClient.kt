@@ -188,31 +188,57 @@ HOW TO TALK:
                 .build()
 
             secureHttpClient(15, 45, "groq_chat").newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: ""
+
                 if (!response.isSuccessful) {
-                    val errorBody = response.body?.string() ?: ""
-                    // Check for organization_restricted — Groq flagged the account
-                    if (errorBody.contains("organization_restricted")) {
-                        error("Your Groq account has been restricted. Go to https://console.groq.com and check your account status, or generate a new API key.")
+                    // Parse the error body if it's JSON, otherwise show raw
+                    val errMsg = try {
+                        val errJson = JSONObject(body)
+                        errJson.optJSONObject("error")?.optString("message")
+                            ?: errJson.optString("message", "")
+                    } catch (_: org.json.JSONException) {
+                        body.take(300)
                     }
-                    // Show the REAL error body so we can debug — no sanitization
-                    error("Groq API error ${response.code}: $errorBody")
+                    when {
+                        errMsg.contains("Forbidden", ignoreCase = true) ->
+                            error("The Groq API key is invalid or revoked. Go to https://console.groq.com/keys, generate a new key, and set it in Settings (or update the GROQ_API_KEY in local.properties and rebuild).")
+                        errMsg.contains("organization_restricted", ignoreCase = true) ->
+                            error("Your Groq account has been restricted. Go to https://console.groq.com and check your account status, or generate a new API key.")
+                        errMsg.contains("rate_limit", ignoreCase = true) || response.code == 429 ->
+                            error("Groq is rate-limiting requests. Wait a minute and try again.")
+                        else -> error("Groq API error ${response.code}: $errMsg")
+                    }
                 }
 
-                val body = response.body?.string() ?: ""
                 if (body.isBlank()) {
                     error("Groq returned an empty response (HTTP ${response.code}). Please try again.")
                 }
 
                 // Parse JSON safely — Groq occasionally returns non-JSON bodies
-                // (compressed responses, proxy HTML errors, rate-limit pages)
-                // that crash JSONObject() with a garbled "Value ... cannot be
-                // converted to JSONObject" message. Catch and surface the real
-                // issue instead of showing the raw garbled text to the user.
+                // (Cloudflare challenge pages, proxy HTML errors, rate-limit pages)
+                // that crash JSONObject(). Catch and surface a real message.
                 val json = try {
                     JSONObject(body)
                 } catch (e: org.json.JSONException) {
-                    Log.e("GroqClient", "Non-JSON response from Groq (first 200 chars): ${body.take(200)}")
+                    Log.e("GroqClient", "Non-JSON response from Groq (HTTP ${response.code}, first 200 chars): ${body.take(200)}")
+                    // If it looks like a Cloudflare challenge page, say so
+                    if (body.contains("cloudflare", ignoreCase = true) || body.contains("<html", ignoreCase = true)) {
+                        error("Groq is behind a Cloudflare challenge right now. Wait a moment and try again, or switch networks.")
+                    }
                     error("Groq returned an unexpected response format. Please try again.")
+                }
+
+                // Check for error object in a 200 response (Groq sometimes does this)
+                if (json.has("error")) {
+                    val errObj = json.optJSONObject("error")
+                    val errMsg = errObj?.optString("message", "") ?: json.optString("error", "")
+                    when {
+                        errMsg.contains("Forbidden", ignoreCase = true) ->
+                            error("The Groq API key is invalid or revoked. Go to https://console.groq.com/keys, generate a new key, and set it in Settings (or update GROQ_API_KEY in local.properties and rebuild).")
+                        errMsg.contains("rate_limit", ignoreCase = true) ->
+                            error("Groq is rate-limiting requests. Wait a minute and try again.")
+                        else -> error("Groq error: $errMsg")
+                    }
                 }
 
                 // Extract the response text from Groq's response format
@@ -222,12 +248,6 @@ HOW TO TALK:
                     if (messageObj != null) {
                         return@runCatching messageObj.optString("content", "I couldn't generate a response. Please try again.")
                     }
-                }
-
-                // Check for error in response body
-                if (json.has("error")) {
-                    val errorObj = json.getJSONObject("error")
-                    error("Groq error: ${errorObj.optString("message", "Unknown error")}")
                 }
 
                 "I couldn't generate a response. Please try again."

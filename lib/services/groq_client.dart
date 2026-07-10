@@ -160,21 +160,69 @@ HOW TO TALK:
 
     if (response.statusCode != 200) {
       final body = response.body;
-      if (body.contains('organization_restricted')) {
-        throw Exception(
-            'Your Groq account has been restricted. Go to https://console.groq.com and check your account status, or generate a new API key.');
+      // Try to parse the error message from JSON
+      String errMsg;
+      try {
+        final errData = jsonDecode(body) as Map<String, dynamic>;
+        final errObj = errData['error'];
+        if (errObj is Map<String, dynamic>) {
+          errMsg = (errObj['message'] as String?) ?? body;
+        } else {
+          errMsg = errObj?.toString() ?? body;
+        }
+      } catch (_) {
+        errMsg = body;
       }
-      throw Exception('Groq API error ${response.statusCode}: $body');
+
+      if (errMsg.contains('Forbidden', ) || errMsg.contains('forbidden')) {
+        throw Exception(
+            'The Groq API key is invalid or revoked. Go to https://console.groq.com/keys, '
+            'generate a new key, and set it in Settings (or update GROQ_API_KEY '
+            'in local.properties and rebuild).');
+      }
+      if (errMsg.contains('organization_restricted')) {
+        throw Exception(
+            'Your Groq account has been restricted. Go to https://console.groq.com '
+            'and check your account status, or generate a new API key.');
+      }
+      if (errMsg.contains('rate_limit') || response.statusCode == 429) {
+        throw Exception('Groq is rate-limiting requests. Wait a minute and try again.');
+      }
+      throw Exception('Groq API error ${response.statusCode}: $errMsg');
     }
 
     // Safe JSON decode — Groq occasionally returns non-JSON bodies
-    // (compressed responses, proxy HTML, rate-limit pages).
+    // (Cloudflare challenge pages, proxy HTML, rate-limit pages).
     Map<String, dynamic> data;
     try {
       data = jsonDecode(response.body) as Map<String, dynamic>;
     } catch (e) {
+      // If it looks like a Cloudflare challenge page, say so
+      if (response.body.contains('cloudflare') ||
+          response.body.contains('<html')) {
+        throw Exception(
+            'Groq is behind a Cloudflare challenge right now. Wait a moment and try again, or switch networks.');
+      }
       throw Exception(
           'Groq returned an unexpected response format. Please try again.');
+    }
+
+    // Check for error object in a 200 response (Groq sometimes does this)
+    if (data.containsKey('error')) {
+      final errObj = data['error'];
+      final errMsg = (errObj is Map<String, dynamic>)
+          ? (errObj['message'] as String?) ?? ''
+          : errObj?.toString() ?? '';
+      if (errMsg.contains('Forbidden')) {
+        throw Exception(
+            'The Groq API key is invalid or revoked. Go to https://console.groq.com/keys, '
+            'generate a new key, and set it in Settings (or update GROQ_API_KEY '
+            'in local.properties and rebuild).');
+      }
+      if (errMsg.contains('rate_limit')) {
+        throw Exception('Groq is rate-limiting requests. Wait a minute and try again.');
+      }
+      throw Exception('Groq error: $errMsg');
     }
 
     final choices = data['choices'] as List<dynamic>?;
