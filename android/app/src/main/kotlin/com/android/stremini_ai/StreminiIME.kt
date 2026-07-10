@@ -927,7 +927,7 @@ class StreminiIME : InputMethodService() {
                 }
             } else {
                 // UI for Text
-                suggestionText.text = if (text!!.length > 20) text.substring(0, 17) + "..." else text
+                suggestionText.text = if ((text?.length ?: 0) > 20) (text?.substring(0, 17) ?: "") + "..." else (text ?: "")
                 suggestionThumbnail.setImageResource(R.drawable.ic_clipboard)
                 suggestionThumbnail.scaleType = ImageView.ScaleType.CENTER_INSIDE
             }

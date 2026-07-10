@@ -179,6 +179,20 @@ class ChatNotifier extends AsyncNotifier<List<Message>> {
       final composio = composioAsync.value;
       final detectedService = composio?.detectService(trimmed);
 
+      // Sync connected-services state into the GroqClient so the system
+      // prompt knows what's actually connected. Without this the AI can't
+      // answer "is gmail connected?" definitively.
+      final groqClient = ref.read(groqClientProvider);
+      if (composio != null) {
+        try {
+          await composio.refreshServiceStatuses();
+          groqClient.connectedServices = Map<String, bool>.from(
+              composio.serviceStatus);
+        } catch (_) {
+          // Non-fatal — the prompt will just say "none connected".
+        }
+      }
+
       String reply;
       if (composio != null && composio.isConnected && detectedService != null) {
         // Check if this is a real ACTION (send, post, create) vs a QUESTION

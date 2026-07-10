@@ -79,7 +79,7 @@ class IMEBackendClient(context: Context) {
         secureHttpClient(5, 10, "groq_keyboard").newCall(request).execute().use { response ->
             if (!response.isSuccessful) return@use ""
             val body = response.body?.string() ?: return@use ""
-            val json = JSONObject(body)
+            val json = try { JSONObject(body) } catch (_: org.json.JSONException) { return@use "" }
             val choices = json.optJSONArray("choices")
             if (choices != null && choices.length() > 0) {
                 val msg = choices.getJSONObject(0).optJSONObject("message")
@@ -123,7 +123,7 @@ class IMEBackendClient(context: Context) {
         secureHttpClient(5, 10, "groq_keyboard").newCall(request).execute().use { response ->
             if (!response.isSuccessful) return@use ""
             val body = response.body?.string() ?: return@use ""
-            val json = JSONObject(body)
+            val json = try { JSONObject(body) } catch (_: org.json.JSONException) { return@use "" }
             val choices = json.optJSONArray("choices")
             if (choices != null && choices.length() > 0) {
                 val msg = choices.getJSONObject(0).optJSONObject("message")

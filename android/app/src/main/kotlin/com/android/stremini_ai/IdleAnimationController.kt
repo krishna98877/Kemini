@@ -22,7 +22,7 @@ class IdleAnimationController(
             onIdle()
             isIdle = true
         }
-        handler.postDelayed(idleRunnable!!, timeoutMs)
+        idleRunnable?.let { handler.postDelayed(it, timeoutMs) }
     }
 
     fun cancel() {

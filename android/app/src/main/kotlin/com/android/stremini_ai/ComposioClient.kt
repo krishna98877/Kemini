@@ -866,7 +866,7 @@ class ComposioClient(
                     val customClient = secureHttpClient(connectTimeoutSeconds = 10L, readTimeoutSeconds = 15L, useCase = "composio")
                     try {
                         customClient.newCall(customReq).execute().use { customResp ->
-                            val customJson = JSONObject(customResp.body?.string() ?: "{}")
+                            val customJson = parseJsonOrNull(customResp.body?.string() ?: "") ?: error("Invalid response from Composio server (auth config)")
                             val newAuthConfigId = customJson.optJSONObject("auth_config")?.optString("id") ?: ""
                             if (newAuthConfigId.isNotBlank()) {
                                 // Use this new auth config to create the connect link
@@ -881,7 +881,7 @@ class ComposioClient(
                                     .post(linkBody)
                                     .build()
                                 customClient.newCall(linkReq).execute().use { linkResp ->
-                                    val linkJson = JSONObject(linkResp.body?.string() ?: "{}")
+                                    val linkJson = parseJsonOrNull(linkResp.body?.string() ?: "") ?: error("Invalid response from Composio server (link)")
                                     val authUrl = linkJson.optString("redirect_url").ifBlank { linkJson.optString("redirectUrl") }
                                     if (authUrl.isNotBlank()) {
                                         withContext(Dispatchers.Main) {
@@ -1558,7 +1558,7 @@ class ComposioClient(
             val client = secureHttpClient(10L, 15L, "composio")
             val sessionId = client.newCall(sessionReq).execute().use { resp ->
                 if (!resp.isSuccessful) return@withContext emptyList()
-                val json = JSONObject(resp.body?.string() ?: "{}")
+                val json = parseJsonOrNull(resp.body?.string() ?: "") ?: error("Invalid response from Composio server")
                 json.optString("session_id").ifBlank { return@withContext emptyList() }
             }
 
@@ -1578,7 +1578,7 @@ class ComposioClient(
 
             client.newCall(searchReq).execute().use { resp ->
                 if (!resp.isSuccessful) return@withContext emptyList()
-                val json = JSONObject(resp.body?.string() ?: "{}")
+                val json = parseJsonOrNull(resp.body?.string() ?: "") ?: error("Invalid response from Composio server")
                 val schemas = json.optJSONArray("tool_schemas") ?: return@withContext emptyList()
                 val results = mutableListOf<Triple<String, String, String>>()
                 for (i in 0 until schemas.length()) {
@@ -1871,7 +1871,7 @@ class ComposioClient(
             if (batch.size == 1) {
                 // Single step — execute directly (no batch overhead)
                 val step = batch[0]
-                val accountId = connected[step.serviceId]!!.first()
+                val accountId = connected[step.serviceId]?.firstOrNull() ?: error("${step.serviceId} is not connected. Connect it first via the plug icon.")
                 val depends = step.params["_dependsOnPreviousStep"]?.toString() == "true"
                 val enrichedParams = if (previousResult != null && depends) {
                     step.params.toMutableMap().apply {
@@ -1903,7 +1903,7 @@ class ComposioClient(
                     // Use smart batching for same-service steps
                     Log.i(TAG, "Smart batching: ${batch.size} steps across ${byService.size} services")
                     for ((svcId, svcSteps) in byService) {
-                        val accountId = connected[svcId]!!.first()
+                        val accountId = connected[svcId]?.firstOrNull() ?: error("$svcId is not connected. Connect it first via the plug icon.")
                         val batchToolInfo = BATCH_TOOLS[svcId]
 
                         if (svcSteps.size > 1 && batchToolInfo != null) {
@@ -1945,7 +1945,7 @@ class ComposioClient(
                     // No batchable services — execute all concurrently via async
                     Log.i(TAG, "Batching ${batch.size} independent steps concurrently")
                     val deferreds = batch.mapIndexed { _, step ->
-                        val accountId = connected[step.serviceId]!!.first()
+                        val accountId = connected[step.serviceId]?.firstOrNull() ?: error("${step.serviceId} is not connected. Connect it first via the plug icon.")
                         val enrichedParams = step.params.toMutableMap().apply { remove("_dependsOnPreviousStep") }
                         val normalizedParams = resolveContactParams(step.actionId, enrichedParams)
                         val stepIdx = steps.indexOf(step)
