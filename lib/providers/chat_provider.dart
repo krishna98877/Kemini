@@ -50,6 +50,7 @@ final documentContextProvider =
 /// open-source repo would be able to steal and abuse it. Forks of this
 /// project must supply their own Groq key at build time.
 const String _kGroqApiKeyPlaceholder = r'$$GROQ_API_KEY$$';
+const String _kGroqApiKeySecondaryPlaceholder = r'$$GROQ_API_KEY_2$$';
 
 String _resolveGroqApiKey() {
   // Build-time injection via --dart-define takes priority.
@@ -61,8 +62,25 @@ String _resolveGroqApiKey() {
   return '';
 }
 
+String _resolveGroqApiKeySecondary() {
+  // Build-time injection via --dart-define for secondary key.
+  const injected = String.fromEnvironment('GROQ_API_KEY_2', defaultValue: _kGroqApiKeySecondaryPlaceholder);
+  if (injected != _kGroqApiKeySecondaryPlaceholder && injected.isNotEmpty) {
+    return injected;
+  }
+  // No secondary key configured — return empty string.
+  return '';
+}
+
 final groqClientProvider = Provider<GroqClient>((ref) {
   final client = GroqClient(apiKey: _resolveGroqApiKey());
+  ref.onDispose(() => client.dispose());
+  return client;
+});
+
+final groqClientSecondaryProvider = Provider<GroqClient>((ref) {
+  final apiKey = _resolveGroqApiKeySecondary();
+  final client = GroqClient(apiKey: apiKey);
   ref.onDispose(() => client.dispose());
   return client;
 });

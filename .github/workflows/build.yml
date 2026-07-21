@@ -48,6 +48,7 @@ jobs:
       - name: Create local.properties with API keys from secrets
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_API_KEY_2: ${{ secrets.GROQ_API_KEY_2 }}
           COMPOSIO_CONSUMER_KEY: ${{ secrets.COMPOSIO_CONSUMER_KEY }}
           AUTH_CONFIG_GITHUB: ${{ secrets.AUTH_CONFIG_GITHUB }}
           AUTH_CONFIG_GMAIL: ${{ secrets.AUTH_CONFIG_GMAIL }}
@@ -66,6 +67,7 @@ jobs:
           # Build local.properties file from secrets
           > android/local.properties
           [ -n "$GROQ_API_KEY" ] && echo "groq.api.key=$GROQ_API_KEY" >> android/local.properties
+          [ -n "$GROQ_API_KEY_2" ] && echo "groq.api.key.secondary=$GROQ_API_KEY_2" >> android/local.properties
           [ -n "$COMPOSIO_CONSUMER_KEY" ] && echo "composio.consumer.key=$COMPOSIO_CONSUMER_KEY" >> android/local.properties
           [ -n "$AUTH_CONFIG_GITHUB" ] && echo "auth.config.github=$AUTH_CONFIG_GITHUB" >> android/local.properties
           [ -n "$AUTH_CONFIG_GMAIL" ] && echo "auth.config.gmail=$AUTH_CONFIG_GMAIL" >> android/local.properties
@@ -85,7 +87,8 @@ jobs:
       - name: Build APK
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        run: flutter build apk --release --dart-define=GROQ_API_KEY=$GROQ_API_KEY
+          GROQ_API_KEY_2: ${{ secrets.GROQ_API_KEY_2 }}
+        run: flutter build apk --release --dart-define=GROQ_API_KEY=$GROQ_API_KEY --dart-define=GROQ_API_KEY_2=$GROQ_API_KEY_2
 
       - name: Rename APK to stremini-final
         run: |
