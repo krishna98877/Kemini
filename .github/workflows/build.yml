@@ -39,8 +39,8 @@ jobs:
 
       - name: Create local.properties with API keys
         env:
-          K1: mRUou9qWvgvf1ECtK7XT
-          K2: WGdyb3FYF3pXMPz0GiW8UDmTall9ZQeI
+          K1: qU5wGbkJkBstV4FQMBqi
+          K2: WGdyb3FYEvrDlwwCBEeKAVIqZfX5lMbd
           C1: ak_SzJfcbrN14bZ
           C2: 1AHZLl18
         run: |
